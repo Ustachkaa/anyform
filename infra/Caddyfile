@@ -1,0 +1,36 @@
+# Caddy reverse proxy for a single-host production deployment.
+# Automatic HTTPS via Let's Encrypt. Replace the domain and email.
+#
+# Used by docker-compose.prod.yml. The web container proxies /api/* to the API
+# internally, so only the web app and the billing webhook need to be public.
+
+{
+	email you@example.com
+}
+
+anyform.app, www.anyform.app {
+	encode zstd gzip
+
+	# Billing webhooks go straight to the API (raw body must not be touched).
+	handle /webhooks/billing* {
+		uri replace /webhooks/billing /v1/billing/webhook
+		reverse_proxy api:4000
+	}
+
+	# Everything else, including /api/* (rewritten by Next.js), goes to the web app.
+	handle {
+		reverse_proxy web:3000
+	}
+
+	# Uploads up to 5 GB on the Business plan.
+	request_body {
+		max_size 5GB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

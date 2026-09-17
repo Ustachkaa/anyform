@@ -222,7 +222,7 @@ implementation can be added without touching routes.
 
 ```
 cp .env.example .env
-docker compose up -d db                 # Postgres only
+docker compose up -d db                 # Postgres only — or `npm run dev:db` for an embedded one on :5433
 npm install
 npm run build -w @anyform/shared
 npm run db:generate && npm run db:migrate

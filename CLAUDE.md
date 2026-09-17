@@ -33,16 +33,16 @@ npm run db:generate                # prisma generate
 npm run typecheck                  # all workspaces
 npm test                           # vitest in shared + api
 npm run dev:api / dev:worker / dev:web
-docker compose up -d db            # Postgres only
+npm run dev:db                     # embedded Postgres on :5433 (no Docker needed)
+docker compose up -d db            # or Docker Postgres on :5432
 ```
 
 ## Environment quirks
 
 - Windows dev box. Default `node` is 20 (nvm4w); 22 lives at
   `%NVM_HOME%\v22.21.1`, 24 at `C:\Program Files\nodejs`. Node 20 is enough.
-- No Docker on the dev box at the time of writing — API/worker cannot be run
-  end-to-end locally until Postgres is available. Typecheck and unit tests
-  work without it.
+- No Docker on the dev box. `npm run dev:db` runs an embedded Postgres on
+  :5433 (port 5432 is taken by an unrelated postgres.exe). Data in data/pg.
 - Keep shell commands short on this machine; very long heredocs get truncated.
 
 ## Design

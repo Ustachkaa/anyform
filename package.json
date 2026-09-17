@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspaces --if-present",
+    "dev:db": "node scripts/dev-db.mjs",
     "dev:web": "npm run dev -w @anyform/web",
     "dev:api": "npm run dev -w @anyform/api",
     "dev:worker": "npm run dev:worker -w @anyform/api",
@@ -17,10 +18,14 @@
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "db:migrate": "npm run db:migrate -w @anyform/api",
+    "db:deploy": "npm run db:deploy -w @anyform/api",
     "db:generate": "npm run db:generate -w @anyform/api",
     "db:studio": "npm run db:studio -w @anyform/api"
   },
   "engines": {
     "node": ">=20.11"
+  },
+  "devDependencies": {
+    "embedded-postgres": "^18.4.0-beta.17"
   }
 }

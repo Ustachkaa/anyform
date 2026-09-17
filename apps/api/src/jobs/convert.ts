@@ -125,12 +125,24 @@ export async function runConversion(conversionId: string, log: Logger): Promise<
         ? `Conversion timed out after ${Math.round(config.JOB_TIMEOUT_MS / 60000)} minutes.`
         : sanitiseErrorMessage(err);
     await pending;
-    await prisma.conversion
-      .update({
+    const persistFailure = (error: string) =>
+      prisma.conversion.update({
         where: { id: row.id },
-        data: { status: "failed", error: message, engine: engineName ?? null, finishedAt: new Date() },
-      })
-      .catch((e) => jobLog.error({ err: e }, "could not persist failure"));
+        data: { status: "failed", error, engine: engineName ?? null, finishedAt: new Date() },
+      });
+    try {
+      await persistFailure(message);
+    } catch (e) {
+      // A row stuck in "processing" would count against the user's quota forever,
+      // so fall back to a plain-ASCII message (e.g. for databases whose encoding
+      // cannot store "→") and, failing that, to a generic one.
+      jobLog.warn({ err: e }, "could not persist failure message; retrying with ASCII");
+      // eslint-disable-next-line no-control-regex
+      const ascii = message.replace(/[^\x20-\x7e]+/g, "-").slice(0, 500);
+      await persistFailure(ascii).catch(() =>
+        persistFailure("Conversion failed.").catch((e2) => jobLog.error({ err: e2 }, "could not persist failure")),
+      );
+    }
     if (err instanceof InfraError) {
       jobLog.error({ err }, "infrastructure failure; will retry");
       throw err;

@@ -10,6 +10,12 @@ spreadsheets, presentations and ebooks into other formats. Every visitor gets
 - Architecture & API contract: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - Brand: [`docs/BRAND.md`](docs/BRAND.md) · Roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md)
 
+## Screenshots
+
+| Home | Pair page (`/convert/mp4-to-mp3`) | Pricing |
+| --- | --- | --- |
+| ![Home](docs/screenshots/home.png) | ![Pair page](docs/screenshots/pair.png) | ![Pricing](docs/screenshots/pricing.png) |
+
 ## Stack
 
 | Layer | Tech |
@@ -25,7 +31,7 @@ spreadsheets, presentations and ebooks into other formats. Every visitor gets
 
 ```bash
 cp .env.example .env               # edit secrets
-docker compose up -d db            # Postgres on :5432
+docker compose up -d db            # Postgres on :5432 (or: npm run dev:db — embedded Postgres, no Docker)
 npm install
 npm run build -w @anyform/shared
 npm run db:generate
@@ -56,6 +62,8 @@ docs            Business plan, architecture, brand, roadmap
 
 | Command | What it does |
 | --- | --- |
+| `npm run dev:db` | Embedded PostgreSQL on :5433 (no Docker), data in `data/pg` |
+| `bash scripts/e2e.sh` | 24-check smoke test against a running stack |
 | `npm run build` | Build shared → api → web |
 | `npm run typecheck` | Typecheck every workspace |
 | `npm test` | Run unit tests (shared + api) |
