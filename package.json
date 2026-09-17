@@ -1,0 +1,26 @@
+{
+  "name": "anyform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Anyform — convert any file, video, audio, image or document into any other format.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:web": "npm run dev -w @anyform/web",
+    "dev:api": "npm run dev -w @anyform/api",
+    "dev:worker": "npm run dev:worker -w @anyform/api",
+    "build": "npm run build -w @anyform/shared && npm run build -w @anyform/api && npm run build -w @anyform/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "db:migrate": "npm run db:migrate -w @anyform/api",
+    "db:generate": "npm run db:generate -w @anyform/api",
+    "db:studio": "npm run db:studio -w @anyform/api"
+  },
+  "engines": {
+    "node": ">=20.11"
+  }
+}

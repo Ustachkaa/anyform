@@ -1,0 +1,96 @@
+# Anyform — local & single-host production stack.
+#
+#   docker compose up -d db          # just the database, run apps with npm
+#   docker compose up --build        # everything, with conversion engines baked in
+#
+# pg-boss uses the same Postgres as the job queue, so there is no Redis.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: anyform
+      POSTGRES_PASSWORD: anyform
+      POSTGRES_DB: anyform
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anyform -d anyform"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Optional S3-compatible object store. Set STORAGE_DRIVER=s3 to use it.
+  minio:
+    image: minio/minio:latest
+    profiles: ["s3"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio:/data
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/api.Dockerfile
+    restart: unless-stopped
+    command: ["sh", "-c", "npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && node apps/api/dist/server.js"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://anyform:anyform@db:5432/anyform
+      STORAGE_LOCAL_DIR: /data
+      API_PORT: "4000"
+    ports:
+      - "4000:4000"
+    volumes:
+      - filedata:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/api.Dockerfile
+    restart: unless-stopped
+    command: ["node", "apps/api/dist/worker.js"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://anyform:anyform@db:5432/anyform
+      STORAGE_LOCAL_DIR: /data
+    volumes:
+      - filedata:/data
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4g
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/web.Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      API_INTERNAL_URL: http://api:4000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  filedata:
+  minio:

@@ -1,0 +1,99 @@
+// Anyform database schema (PostgreSQL).
+//
+// Status / plan / interval columns are plain strings validated in code (see
+// @anyform/shared) so the schema stays portable and migrations stay boring.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String   @id @default(cuid())
+  email            String   @unique
+  passwordHash     String
+  name             String?
+  /// "free" | "starter" | "pro" | "business" — denormalised from Subscription for fast quota checks.
+  plan             String   @default("free")
+  stripeCustomerId String?  @unique
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  conversions  Conversion[]
+  subscription Subscription?
+  apiKeys      ApiKey[]
+}
+
+model Subscription {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Billing-provider subscription id (Stripe today; adapter-agnostic name on purpose).
+  providerSubscriptionId String @unique
+  providerPriceId      String
+  plan                 String
+  /// "month" | "year"
+  interval             String
+  /// active | trialing | past_due | canceled | incomplete | unpaid
+  status               String
+  currentPeriodEnd     DateTime
+  cancelAtPeriodEnd    Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model Conversion {
+  id          String    @id @default(cuid())
+  /// Set once the visitor is logged in (or after guest → account merge).
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// Anonymous visitor id from the signed guest cookie. Cleared on merge.
+  guestId     String?
+  /// queued | processing | done | failed
+  status      String    @default("queued")
+  progress    Int       @default(0)
+  sourceName  String
+  sourceExt   String
+  targetExt   String
+  sourceBytes BigInt
+  outputBytes BigInt?
+  /// Storage keys (path in the local driver, object key in S3).
+  sourceKey   String
+  outputKey   String?
+  outputName  String?
+  /// Which engine produced the output: ffmpeg | sharp | libreoffice | pandoc | calibre | poppler | pdf-lib
+  engine      String?
+  error       String?
+  options     Json?
+  /// Client IP hash, used for abuse throttling only.
+  ipHash      String?
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  /// When the source and output become eligible for deletion.
+  expiresAt   DateTime
+
+  @@index([userId, createdAt])
+  @@index([guestId, createdAt])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  /// First 8 chars of the key, shown in the dashboard so users can tell keys apart.
+  prefix     String
+  keyHash    String    @unique
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  @@index([userId])
+}

@@ -1,0 +1,143 @@
+import { mkdtemp, rm, stat } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import type { Logger } from "pino";
+import { getFormat, replaceExt, type ConversionOptions } from "@anyform/shared";
+import { config } from "../config.js";
+import { prisma } from "../db.js";
+import { CommandTimeoutError } from "../engines/exec.js";
+import { EngineError, resolveEngine } from "../engines/registry.js";
+import { sanitiseErrorMessage } from "../http.js";
+import { buildKey, getStorage } from "../storage/index.js";
+
+/**
+ * The convert job (ARCHITECTURE §5). Deterministic failures (bad file,
+ * unsupported by the installed engines) mark the row failed and return;
+ * infrastructure failures (storage, database) also mark the row failed but
+ * rethrow so pg-boss retries once.
+ */
+
+export interface ConvertResult {
+  ok: boolean;
+  engine?: string;
+  error?: string;
+}
+
+class InfraError extends Error {}
+
+function extractOptions(raw: unknown): ConversionOptions {
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as ConversionOptions) : {};
+}
+
+export async function runConversion(conversionId: string, log: Logger): Promise<ConvertResult> {
+  const row = await prisma.conversion.findUnique({ where: { id: conversionId } });
+  if (!row) {
+    log.warn({ conversionId }, "conversion row missing; dropping job");
+    return { ok: false, error: "missing" };
+  }
+  if (row.status === "done") return { ok: true, engine: row.engine ?? undefined };
+  if (!row.sourceKey) {
+    await prisma.conversion.update({ where: { id: row.id }, data: { status: "failed", error: "Source file was deleted before conversion started.", finishedAt: new Date() } });
+    return { ok: false, error: "source deleted" };
+  }
+
+  const storage = getStorage();
+  const jobLog = log.child({ conversionId, from: row.sourceExt, to: row.targetExt });
+  await prisma.conversion.update({
+    where: { id: row.id },
+    data: { status: "processing", startedAt: new Date(), progress: 0, error: null },
+  });
+
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "anyform-job-"));
+  const inputPath = path.join(tmpDir, `input.${row.sourceExt}`);
+  const outputPath = path.join(tmpDir, `output.${row.targetExt}`);
+
+  // Throttled, ordered progress writes.
+  let lastPct = 0;
+  let lastWrite = 0;
+  let pending: Promise<unknown> = Promise.resolve();
+  const onProgress = (raw: number) => {
+    const pct = Math.max(0, Math.min(99, Math.round(raw)));
+    const now = Date.now();
+    if (pct <= lastPct) return;
+    if (pct - lastPct < 5 && now - lastWrite < 1000) return;
+    lastPct = pct;
+    lastWrite = now;
+    pending = pending.then(() => prisma.conversion.update({ where: { id: row.id }, data: { progress: pct } }).catch(() => undefined));
+  };
+
+  let engineName: string | undefined;
+  try {
+    const engine = await resolveEngine(row.sourceExt, row.targetExt);
+    if (!engine) {
+      throw new EngineError("none", `No conversion engine is installed for ${row.sourceExt} → ${row.targetExt}.`);
+    }
+    engineName = engine.name;
+
+    try {
+      await storage.downloadToFile(row.sourceKey, inputPath);
+    } catch (err) {
+      throw new InfraError(`Could not read the uploaded file: ${(err as Error).message}`);
+    }
+
+    jobLog.info({ engine: engine.name }, "converting");
+    await engine.convert({
+      inputPath,
+      outputPath,
+      fromExt: row.sourceExt,
+      toExt: row.targetExt,
+      options: extractOptions(row.options),
+      tmpDir,
+      timeoutMs: config.JOB_TIMEOUT_MS,
+      onProgress,
+      log: (msg) => jobLog.debug(msg),
+    });
+
+    const out = await stat(outputPath).catch(() => null);
+    if (!out || out.size === 0) throw new EngineError(engine.name, "The engine finished but produced an empty file.");
+
+    const outputKey = buildKey("out", row.id, row.targetExt, row.createdAt);
+    try {
+      await storage.putFile(outputKey, outputPath, getFormat(row.targetExt)?.mime);
+    } catch (err) {
+      throw new InfraError(`Could not store the converted file: ${(err as Error).message}`);
+    }
+
+    await pending;
+    await prisma.conversion.update({
+      where: { id: row.id },
+      data: {
+        status: "done",
+        progress: 100,
+        outputKey,
+        outputBytes: BigInt(out.size),
+        outputName: row.outputName ?? replaceExt(row.sourceName, row.targetExt),
+        engine: engine.name,
+        finishedAt: new Date(),
+        error: null,
+      },
+    });
+    jobLog.info({ engine: engine.name, bytes: out.size }, "done");
+    return { ok: true, engine: engine.name };
+  } catch (err) {
+    const message =
+      err instanceof CommandTimeoutError
+        ? `Conversion timed out after ${Math.round(config.JOB_TIMEOUT_MS / 60000)} minutes.`
+        : sanitiseErrorMessage(err);
+    await pending;
+    await prisma.conversion
+      .update({
+        where: { id: row.id },
+        data: { status: "failed", error: message, engine: engineName ?? null, finishedAt: new Date() },
+      })
+      .catch((e) => jobLog.error({ err: e }, "could not persist failure"));
+    if (err instanceof InfraError) {
+      jobLog.error({ err }, "infrastructure failure; will retry");
+      throw err;
+    }
+    jobLog.warn({ err: message, engine: engineName }, "conversion failed");
+    return { ok: false, engine: engineName, error: message };
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
