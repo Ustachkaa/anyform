@@ -23,6 +23,40 @@ export const loginSchema = z.object({
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
+export const forgotPasswordSchema = z.object({ email: emailSchema });
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+
+export const resetPasswordSchema = z.object({
+  token: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/, "This reset link is invalid."),
+  password: passwordSchema,
+});
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+/** Profile edits. Changing the email needs the current password; a name-only edit does not. */
+export const updateProfileSchema = z
+  .object({
+    name: z.string().trim().max(80).nullable().optional(),
+    email: emailSchema.optional(),
+    currentPassword: z.string().min(1).max(128).optional(),
+  })
+  .refine((v) => v.name !== undefined || v.email !== undefined, { message: "Nothing to update." })
+  .refine((v) => v.email === undefined || !!v.currentPassword, {
+    message: "Enter your current password to change your email.",
+    path: ["currentPassword"],
+  });
+export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Enter your current password").max(128),
+  newPassword: passwordSchema,
+});
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
+export const deleteAccountSchema = z.object({
+  password: z.string().min(1, "Enter your password to confirm").max(128),
+});
+export type DeleteAccountInput = z.infer<typeof deleteAccountSchema>;
+
 /** Multipart field values arrive as strings, so this validates the text part. */
 export const createConversionFieldsSchema = z.object({
   target: z
@@ -49,8 +83,12 @@ export const createConversionFieldsSchema = z.object({
 export type CreateConversionFields = z.infer<typeof createConversionFieldsSchema>;
 export type ConversionOptions = NonNullable<CreateConversionFields["options"]>;
 
-export const checkoutSchema = z.object({
-  plan: z.enum(PAID_PLANS as unknown as [string, ...string[]]),
-  interval: z.enum(["month", "year"]).default("month"),
-});
+/** Either a subscription (`plan` + `interval`) or a one-time `product` (pack or 24-hour pass). */
+export const checkoutSchema = z.union([
+  z.object({ product: z.enum(["pack", "pass"]) }).strict(),
+  z.object({
+    plan: z.enum(PAID_PLANS as unknown as [string, ...string[]]),
+    interval: z.enum(["month", "year"]).default("month"),
+  }),
+]);
 export type CheckoutInput = z.infer<typeof checkoutSchema>;

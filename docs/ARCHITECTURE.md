@@ -77,9 +77,21 @@ anyform/
   `guestId` and `userId = null` is updated to the user and `guestId` is
   cleared. The free count therefore follows the person to their account and
   cannot be reset by signing up.
+- **Session version**: the JWT carries `sv` = `User.sessionVersion` at
+  sign-in. Changing or resetting the password increments it, so every
+  session issued before that stops resolving to the user (other devices are
+  signed out; the device that made the change gets a fresh cookie).
+- **Password reset**: `POST /auth/forgot` always answers 202 and sends the
+  email after responding, so it reveals neither whether an account exists
+  nor (by timing) which. The link carries a 256-bit random token; only its
+  SHA-256 is stored (`PasswordReset`). It works once, for 60 minutes; a newer
+  link revokes older ones, and a second request inside a minute sends
+  nothing. Email goes through `apps/api/src/mail` (`MAIL_DRIVER`: `log` in
+  development, `resend` in production).
 - Request identity is resolved once per request into
-  `{ userId?: string, guestId: string, plan: PlanId }` and attached to
-  `request.identity`.
+  `{ userId?, guestId, plan, planSource, credits, passUntil? }` and attached to
+  `request.identity`. `plan` is the subscription's plan, or `starter` while a
+  24-hour pass is active (`planSource` says which).
 
 ## 4. Quota rules
 
@@ -90,8 +102,15 @@ Implemented in `packages/shared/src/quota.ts` and enforced in
 2. `FREE_QUOTA_PERIOD` is `lifetime` (default) or `monthly` (resets at the
    start of each UTC calendar month).
 3. **Used** = number of `Conversion` rows for the identity (by `userId` if
-   logged in, else by `guestId`) whose status is not `failed`, within the
-   period. Failed jobs never cost a conversion.
+   logged in, else by `guestId`) whose status is not `failed` and whose
+   `chargedAs` is `free`, within the period. Failed jobs never cost a
+   conversion.
+   - **Pack credits** (`User.credits`, never expire) are spent only once the
+     free allowance is used up: the upload route decrements one atomically
+     (`credits > 0` guard) and records `chargedAs = credit`; a failed job gives
+     it back once (`credit` → `credit_refunded`).
+   - Conversions under a subscription or pass record `plan` / `pass` and touch
+     neither the allowance nor credits.
 4. Paid plans (`starter`, `pro`, `business`) have **no count limit**. They
    are limited by `maxFileBytes`, `concurrentJobs`, `batchSize` and
    `retentionHours` from `PLANS`.
@@ -143,13 +162,18 @@ Web polls `GET /v1/conversions/:id` every 1.5 s while queued/processing.
 | `POST /auth/login` | – | body `{ email, password }` → same |
 | `POST /auth/logout` | session | clears cookie |
 | `GET /auth/me` | session | `{ user }` or 401 |
+| `POST /auth/forgot` | – | body `{ email }` → always 202; emails a reset link if the account exists |
+| `POST /auth/reset` | – | body `{ token, password }` → sets the password, signs out other sessions, logs in, `{ user }`; 400 if the link expired or was used |
+| `PATCH /account` | session | body `{ name?, email?, currentPassword? }` (password required to change email) → `{ user }`; 409 if the email is taken |
+| `POST /account/password` | session | body `{ currentPassword, newPassword }` → signs out other sessions, fresh cookie, `{ user }` |
+| `DELETE /account` | session | body `{ password }` → deletes files, history and account, 204; 409 `active_subscription` while a subscription is active and not set to cancel |
 | `GET /usage` | guest or session | `UsageDTO` |
 | `POST /conversions` | guest or session | multipart → `201 CreateConversionResponse` |
 | `GET /conversions` | session | `{ conversions: ConversionDTO[] }` newest first, limit 100 |
 | `GET /conversions/:id` | owner | `ConversionDTO` |
 | `GET /conversions/:id/download` | owner | file |
 | `DELETE /conversions/:id` | owner | 204 |
-| `POST /billing/checkout` | session | body `{ plan, interval }` → `{ url }` |
+| `POST /billing/checkout` | session | body `{ plan, interval }` (subscription) or `{ product: "pack" | "pass" }` → `{ url }` |
 | `POST /billing/portal` | session | `{ url }` |
 | `POST /billing/webhook` | provider signature | raw body; updates Subscription + User.plan |
 
@@ -165,7 +189,10 @@ Errors are always `{ error: { code, message, details? } }` with the codes in
 | `/formats` | static | All formats by category, each linking to its top pairs |
 | `/pricing` | static | Plan table with monthly/yearly toggle, FAQ |
 | `/login`, `/signup` | client | Forms validated with shared zod schemas |
-| `/dashboard` | dynamic (server reads session via API) | Usage meter, history, download/delete, manage billing |
+| `/forgot-password`, `/reset-password` | client | Ask for a reset link; set a new password from the emailed link (page sends no Referer) |
+| `/account` | dynamic | Profile (name, email), change password, delete account |
+| `/dashboard` | dynamic (server reads session via API) | Usage meter (free count, pack credits, pass), history, download/delete, manage billing |
+| `/checkout` | client | Opens Paddle's checkout overlay for `?_ptxn=` (Paddle default payment link) |
 | `/legal/terms`, `/legal/privacy` | static | Placeholders to be reviewed by a lawyer |
 
 `next.config.ts` rewrites `/api/:path*` → `${API_INTERNAL_URL}/v1/:path*`.
@@ -201,19 +228,41 @@ at download time via `Content-Disposition`.
 
 ## 10. Billing
 
-`BillingProvider` interface: `createCheckout(user, plan, interval) → url`,
-`createPortal(user) → url`, `handleWebhook(rawBody, signature) → events`.
-The Stripe implementation maps `STRIPE_PRICE_*` env vars to `(plan, interval)`.
-Webhook events update `Subscription` and denormalise `User.plan`
-(`active`/`trialing` → the plan; anything else → `free`). A Paddle
-implementation can be added without touching routes.
+`BillingProvider` interface: `createCheckout(user, item) → url` (item = a
+subscription or a one-time product), `createPortal(user) → url`,
+`handleWebhook(rawBody, headers) → events`. Providers translate events into
+`billing/apply.ts`: `applySnapshot` (Subscription row + `User.plan`;
+`active`/`trialing` → the plan, anything else → `free`) and `grantPurchase`
+(one-time products; `Purchase.providerTransactionId` is unique, so a
+re-delivered webhook grants nothing).
+
+- **Paddle** (default when `PADDLE_API_KEY` is set; `BILLING_PROVIDER` forces
+  one). Merchant of record: sells to the buyer, remits VAT / US sales tax and
+  pays out to Georgia, where Stripe doesn't operate. Checkout creates a
+  transaction (`custom_data.userId`) and returns
+  `${WEB_ORIGIN}/checkout?_ptxn=…`, where Paddle.js opens the overlay; set
+  that page as the default payment link in Paddle. Webhooks are verified with
+  `Paddle-Signature` (HMAC-SHA256 of `ts:body`, ±5 min); handled events:
+  `subscription.*`, `transaction.completed` (packs/passes). Users map by
+  `custom_data.userId` or `User.paddleCustomerId`. Portal:
+  `/customers/{id}/portal-sessions`. `scripts/paddle-setup.mjs` creates the
+  products and prices.
+- **Stripe** (for a non-Georgian entity): Checkout in `subscription` or
+  `payment` mode; `checkout.session.completed` in payment mode grants packs
+  and passes.
+- Price ids for both come from `<PROVIDER>_PRICE_*` (`billing/prices.ts`).
+- Products: subscriptions per `plans.ts`; `pack` = 20 credits ($4.99);
+  `pass` = Starter limits for 24 h ($2.99), extending an unexpired pass.
 
 ## 11. Security & abuse
 
 - Inputs are never executed; engines get file paths only.
 - Filenames are sanitised (`safeFilename`), storage keys are server-generated.
 - Rate limits: 100 req/min per IP globally; 20 uploads/hour per IP for guests.
-- Passwords: bcryptjs cost 12. JWT: HS256 with `JWT_SECRET`, 30 days.
+- Passwords: bcryptjs cost 12. JWT: HS256 with `JWT_SECRET`, 30 days,
+  invalidated early by a password change or reset (§3).
+- Auth rate limits: 20 req/15 min per IP for signup/login/reset, 5/15 min for
+  forgot-password, 10/15 min for account changes.
 - Cookies: httpOnly, `SameSite=Lax`, `Secure` in production.
 - Retention enforced by the cleanup job; "Delete now" available to owners.
 - No third-party scripts on the site; analytics is cookieless (Plausible).

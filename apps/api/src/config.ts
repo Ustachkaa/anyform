@@ -73,6 +73,27 @@ const schema = z.object({
   STRIPE_PRICE_PRO_YEARLY: optStr,
   STRIPE_PRICE_BUSINESS_MONTHLY: optStr,
   STRIPE_PRICE_BUSINESS_YEARLY: optStr,
+  STRIPE_PRICE_PACK: optStr,
+  STRIPE_PRICE_PASS: optStr,
+
+  // Which provider takes payments. Unset: Paddle if PADDLE_API_KEY is set, else Stripe if STRIPE_SECRET_KEY is.
+  BILLING_PROVIDER: z.enum(["paddle", "stripe"]).optional(),
+  PADDLE_API_KEY: optStr,
+  PADDLE_WEBHOOK_SECRET: optStr,
+  PADDLE_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
+  PADDLE_PRICE_STARTER_MONTHLY: optStr,
+  PADDLE_PRICE_STARTER_YEARLY: optStr,
+  PADDLE_PRICE_PRO_MONTHLY: optStr,
+  PADDLE_PRICE_PRO_YEARLY: optStr,
+  PADDLE_PRICE_BUSINESS_MONTHLY: optStr,
+  PADDLE_PRICE_BUSINESS_YEARLY: optStr,
+  PADDLE_PRICE_PACK: optStr,
+  PADDLE_PRICE_PASS: optStr,
+
+  // Transactional email (password reset). "log" prints the message instead of sending it.
+  MAIL_DRIVER: z.enum(["log", "resend"]).default("log"),
+  MAIL_FROM: z.string().default("Anyform <no-reply@anyform.app>"),
+  RESEND_API_KEY: optStr,
 });
 
 const parsed = schema.safeParse(raw);

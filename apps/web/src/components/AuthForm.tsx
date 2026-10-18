@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { isPlanId, loginSchema, signupSchema, type BillingInterval } from "@anyform/shared";
-import { ApiClientError, checkout, explainError, login, signup } from "@/lib/api";
+import { isOneTimeProductId, isPlanId, loginSchema, ONE_TIME_PRODUCTS, signupSchema, type BillingInterval } from "@anyform/shared";
+import { ApiClientError, checkout, checkoutProduct, explainError, login, signup } from "@/lib/api";
 
 interface Props {
   mode: "login" | "signup";
@@ -18,6 +18,9 @@ export function AuthForm({ mode }: Props) {
   const planParam = params.get("plan");
   const plan = isPlanId(planParam) && planParam !== "free" ? planParam : null;
   const interval: BillingInterval = params.get("interval") === "year" ? "year" : "month";
+  const productParam = params.get("product");
+  const product = !plan && isOneTimeProductId(productParam) ? productParam : null;
+  const carry = plan ? `?plan=${plan}&interval=${interval}` : product ? `?product=${product}` : "";
   const next = params.get("next") ?? "/dashboard";
 
   const [email, setEmail] = useState("");
@@ -52,9 +55,9 @@ export function AuthForm({ mode }: Props) {
       if (mode === "signup") await signup(parsed.data as { email: string; password: string; name?: string });
       else await login(parsed.data as { email: string; password: string });
 
-      if (plan) {
+      if (plan || product) {
         try {
-          const { url } = await checkout(plan, interval);
+          const { url } = plan ? await checkout(plan, interval) : await checkoutProduct(product!);
           window.location.assign(url);
           return;
         } catch {
@@ -79,9 +82,11 @@ export function AuthForm({ mode }: Props) {
 
   return (
     <form onSubmit={onSubmit} noValidate className="space-y-4">
-      {plan && (
+      {(plan || product) && (
         <p className="mono rounded-[4px] bg-accent/20 px-3 py-2 text-xs text-ink">
-          you'll continue to checkout for <strong className="uppercase">{plan}</strong> ({interval}ly) after this step
+          you'll continue to checkout for{" "}
+          <strong className="uppercase">{plan ?? ONE_TIME_PRODUCTS[product!].name}</strong>
+          {plan ? ` (${interval}ly)` : ""} after this step
         </p>
       )}
       {mode === "signup" && (
@@ -120,6 +125,13 @@ export function AuthForm({ mode }: Props) {
         {errors.password && <span className="mt-1 block text-xs text-bad">{errors.password}</span>}
         {mode === "signup" && !errors.password && <span className="mono mt-1 block text-xs text-ink-3">8+ characters</span>}
       </label>
+      {mode === "login" && (
+        <p className="-mt-2 text-right text-sm">
+          <Link href={`/forgot-password${email ? `?email=${encodeURIComponent(email)}` : ""}`} className="link-ink">
+            Forgot password?
+          </Link>
+        </p>
+      )}
 
       {formError && (
         <p role="alert" className="rounded-[4px] border border-bad/40 bg-bad/5 px-3 py-2 text-sm text-bad">
@@ -139,14 +151,14 @@ export function AuthForm({ mode }: Props) {
         {mode === "signup" ? (
           <>
             Already have an account?{" "}
-            <Link href={`/login${plan ? `?plan=${plan}&interval=${interval}` : ""}`} className="link-ink">
+            <Link href={`/login${carry}`} className="link-ink">
               Log in
             </Link>
           </>
         ) : (
           <>
             New here?{" "}
-            <Link href={`/signup${plan ? `?plan=${plan}&interval=${interval}` : ""}`} className="link-ink">
+            <Link href={`/signup${carry}`} className="link-ink">
               Create an account
             </Link>
           </>

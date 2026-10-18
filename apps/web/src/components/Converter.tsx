@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type DragEven
 import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
+  ONE_TIME_PRODUCTS,
   PLANS,
   canConvert,
   formatBytes,
@@ -462,6 +463,9 @@ function Paywall({ usage, onBack }: { usage: UsageDTO | null; onBack: () => void
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <Link href="/pricing" className="inline-flex items-center rounded-[4px] bg-accent px-6 py-3 text-base font-medium text-accent-ink transition-transform hover:-translate-y-0.5">
           See plans
+        </Link>
+        <Link href="/pricing#pay-once" className="inline-flex items-center rounded-[4px] border border-ink px-4 py-3 text-sm font-medium text-ink hover:bg-ink hover:text-paper">
+          Pay once: {ONE_TIME_PRODUCTS.pack.credits} for ${ONE_TIME_PRODUCTS.pack.price}
         </Link>
         <Link href="/login" className="inline-flex items-center rounded-[4px] border border-ink px-4 py-3 text-sm font-medium text-ink hover:bg-ink hover:text-paper">
           Already subscribed? Log in

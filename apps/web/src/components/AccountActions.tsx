@@ -1,10 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { explainError, logout, portal } from "@/lib/api";
 
-/** "Manage billing" and "Log out" for the dashboard. */
+/** "Manage billing", "Account settings" and "Log out" for the dashboard. */
 export function AccountActions({ paid }: { paid: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState<"portal" | "logout" | null>(null);
@@ -44,6 +45,9 @@ export function AccountActions({ paid }: { paid: boolean }) {
           {busy === "portal" ? "Opening…" : "Manage billing"}
         </button>
       ) : null}
+      <Link href="/account" className="rounded-[4px] border border-line px-4 py-2 text-sm text-ink hover:border-ink">
+        Account settings
+      </Link>
       <button
         type="button"
         onClick={doLogout}

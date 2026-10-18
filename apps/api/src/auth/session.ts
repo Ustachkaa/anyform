@@ -7,6 +7,13 @@ export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 export interface SessionPayload {
   /** User id. */
   sub: string;
+  /** User.sessionVersion at sign-in; a password change/reset bumps it and retires older sessions. Absent on pre-versioning cookies (= 0). */
+  sv?: number;
+}
+
+export interface SessionInfo {
+  userId: string;
+  sessionVersion: number;
 }
 
 declare module "@fastify/jwt" {
@@ -24,8 +31,8 @@ export const cookieBaseOptions = {
   domain: config.COOKIE_DOMAIN,
 };
 
-export async function issueSession(reply: FastifyReply, userId: string): Promise<void> {
-  const token = await reply.jwtSign({ sub: userId }, { expiresIn: SESSION_TTL_SECONDS });
+export async function issueSession(reply: FastifyReply, userId: string, sessionVersion: number): Promise<void> {
+  const token = await reply.jwtSign({ sub: userId, sv: sessionVersion }, { expiresIn: SESSION_TTL_SECONDS });
   reply.setCookie(SESSION_COOKIE, token, { ...cookieBaseOptions, maxAge: SESSION_TTL_SECONDS });
 }
 
@@ -33,12 +40,13 @@ export function clearSession(reply: FastifyReply): void {
   reply.clearCookie(SESSION_COOKIE, cookieBaseOptions);
 }
 
-/** Returns the user id from a valid session cookie, or null. Never throws. */
-export async function readSession(request: FastifyRequest): Promise<string | null> {
+/** Returns the user id and session version from a valid session cookie, or null. Never throws. */
+export async function readSession(request: FastifyRequest): Promise<SessionInfo | null> {
   if (!request.cookies[SESSION_COOKIE]) return null;
   try {
     const payload = await request.jwtVerify<SessionPayload>({ onlyCookie: true });
-    return typeof payload.sub === "string" && payload.sub ? payload.sub : null;
+    if (typeof payload.sub !== "string" || !payload.sub) return null;
+    return { userId: payload.sub, sessionVersion: typeof payload.sv === "number" ? payload.sv : 0 };
   } catch {
     return null;
   }

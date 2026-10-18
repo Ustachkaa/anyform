@@ -26,7 +26,7 @@ import { conversionToDTO } from "../dto.js";
 import { ApiHttpError, errors } from "../errors.js";
 import { contentDisposition } from "../http.js";
 import { enqueueConvert } from "../queue.js";
-import { assertCanConvert, buildUsage, ownerWhere } from "../quota/usage.js";
+import { assertCanConvert, buildUsage, chargeConversion, ownerWhere, refundCredit } from "../quota/usage.js";
 import { buildKey, getStorage } from "../storage/index.js";
 
 const uploadTmpDir =
@@ -88,7 +88,7 @@ export const conversionRoutes: FastifyPluginAsync = async (app) => {
       const declared = Number(request.headers["content-length"]);
       if (Number.isFinite(declared) && declared > plan.maxFileBytes + 1024 * 1024) throw errors.fileTooLarge(plan.maxFileBytes);
 
-      await assertCanConvert(identity, null);
+      const usageBefore = await assertCanConvert(identity, null);
       await assertGuestIpAllowance(identity);
 
       const part = await request.file({ limits: { fileSize: plan.maxFileBytes } });
@@ -131,35 +131,47 @@ export const conversionRoutes: FastifyPluginAsync = async (app) => {
         if (bytes === 0) throw errors.validation("That file is empty.");
         if (bytes > plan.maxFileBytes) throw errors.fileTooLarge(plan.maxFileBytes);
 
+        // Spend the pack credit (if that's what pays) only now that the upload is valid,
+        // and before storing anything, so a lost race for the last credit leaves no file behind.
+        const chargedAs = await chargeConversion(identity, usageBefore);
         const createdAt = new Date();
         const sourceKey = buildKey("src", id, source.ext, createdAt);
-        await getStorage().putFile(sourceKey, tmpPath, source.mime);
-
         const sourceName = safeFilename(part.filename);
-        const row = await prisma.conversion.create({
-          data: {
-            id,
-            userId: identity.userId ?? null,
-            guestId: identity.userId ? null : identity.guestId,
-            status: "queued",
-            sourceName,
-            sourceExt: source.ext,
-            targetExt: resolved.target.ext,
-            sourceBytes: BigInt(bytes),
-            sourceKey,
-            outputName: replaceExt(sourceName, resolved.target.ext),
-            options: resolved.options ? (resolved.options as Prisma.InputJsonValue) : undefined,
-            ipHash: identity.ipHash,
-            createdAt,
-            expiresAt: new Date(createdAt.getTime() + plan.retentionHours * 3600 * 1000),
-          },
-        });
+        let row;
+        try {
+          await getStorage().putFile(sourceKey, tmpPath, source.mime);
+          row = await prisma.conversion.create({
+            data: {
+              id,
+              userId: identity.userId ?? null,
+              guestId: identity.userId ? null : identity.guestId,
+              status: "queued",
+              chargedAs,
+              sourceName,
+              sourceExt: source.ext,
+              targetExt: resolved.target.ext,
+              sourceBytes: BigInt(bytes),
+              sourceKey,
+              outputName: replaceExt(sourceName, resolved.target.ext),
+              options: resolved.options ? (resolved.options as Prisma.InputJsonValue) : undefined,
+              ipHash: identity.ipHash,
+              createdAt,
+              expiresAt: new Date(createdAt.getTime() + plan.retentionHours * 3600 * 1000),
+            },
+          });
+        } catch (err) {
+          if (chargedAs === "credit" && identity.userId) {
+            await prisma.user.update({ where: { id: identity.userId }, data: { credits: { increment: 1 } } }).catch(() => undefined);
+          }
+          throw err;
+        }
 
         try {
           await enqueueConvert({ conversionId: id }, { priority: plan.priority });
         } catch (err) {
           request.log.error({ err }, "could not enqueue conversion");
           await prisma.conversion.update({ where: { id }, data: { status: "failed", error: "Could not queue the conversion. Please try again." } });
+          await refundCredit(id, row.userId);
           throw errors.internal("Could not queue the conversion. Please try again.");
         }
 

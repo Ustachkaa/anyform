@@ -1,16 +1,20 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getMe } from "@/lib/api";
 
 /**
  * Header account link. Renders "Log in" immediately (most visitors are
  * guests) and swaps to "Dashboard" once the session check comes back, so
- * marketing pages can stay fully static.
+ * marketing pages can stay fully static. Re-checked on every navigation: the
+ * header lives in the root layout and is not remounted, so a check made once
+ * would keep showing "Log in" after signing in (or "Dashboard" after logout).
  */
 export function SessionNav() {
   const [state, setState] = useState<"unknown" | "guest" | "user">("unknown");
+  const pathname = usePathname();
 
   useEffect(() => {
     let alive = true;
@@ -20,7 +24,7 @@ export function SessionNav() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [pathname]);
 
   if (state === "user") {
     return (

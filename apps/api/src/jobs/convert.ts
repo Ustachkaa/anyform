@@ -8,6 +8,7 @@ import { prisma } from "../db.js";
 import { CommandTimeoutError } from "../engines/exec.js";
 import { EngineError, resolveEngine } from "../engines/registry.js";
 import { sanitiseErrorMessage } from "../http.js";
+import { refundCredit } from "../quota/usage.js";
 import { buildKey, getStorage } from "../storage/index.js";
 import { locateOutput, noOutputMessage } from "./output.js";
 
@@ -150,6 +151,11 @@ export async function runConversion(conversionId: string, log: Logger): Promise<
     if (err instanceof InfraError) {
       jobLog.error({ err }, "infrastructure failure; will retry");
       throw err;
+    }
+    // A failed conversion costs nothing: the free allowance already skips failed
+    // rows, and a pack credit is given back (once).
+    if (await refundCredit(row.id, row.userId).catch((e) => (jobLog.error({ err: e }, "could not refund credit"), false))) {
+      jobLog.info("refunded pack credit for failed conversion");
     }
     jobLog.warn({ err: message, engine: engineName }, "conversion failed");
     return { ok: false, engine: engineName, error: message };

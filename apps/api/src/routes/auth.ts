@@ -1,8 +1,9 @@
 import type { FastifyPluginAsync } from "fastify";
-import { loginSchema, signupSchema, type AuthResponse } from "@anyform/shared";
+import { forgotPasswordSchema, loginSchema, resetPasswordSchema, signupSchema, type AuthResponse } from "@anyform/shared";
 import { Prisma } from "@prisma/client";
 import { mergeGuestIntoUser, requireUser, resolveIdentity } from "../auth/identity.js";
 import { hashPassword, verifyPassword } from "../auth/password.js";
+import { hashResetToken, sendResetLink } from "../auth/reset.js";
 import { clearSession, issueSession } from "../auth/session.js";
 import { prisma } from "../db.js";
 import { userToDTO } from "../dto.js";
@@ -33,7 +34,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     }
 
     await mergeGuestIntoUser(identity.guestId, user.id);
-    await issueSession(reply, user.id);
+    await issueSession(reply, user.id, user.sessionVersion);
     const res: AuthResponse = { user: userToDTO(user) };
     return reply.status(201).send(res);
   });
@@ -47,7 +48,43 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     if (!user || !ok) throw errors.unauthorized("Wrong email or password.");
 
     await mergeGuestIntoUser(identity.guestId, user.id);
-    await issueSession(reply, user.id);
+    await issueSession(reply, user.id, user.sessionVersion);
+    const res: AuthResponse = { user: userToDTO(user) };
+    return res;
+  });
+
+  /**
+   * Always answers 202, whether or not the email has an account, so the
+   * endpoint cannot be used to discover who is registered. The email is sent
+   * after the response so timing does not tell either.
+   */
+  app.post("/auth/forgot", { config: { rateLimit: { max: 5, timeWindow: "15 minutes" } } }, async (request, reply) => {
+    const body = forgotPasswordSchema.parse(request.body ?? {});
+    void sendResetLink(body.email).catch((err) => request.log.error({ err }, "password reset email failed"));
+    return reply.status(202).send({ ok: true });
+  });
+
+  app.post("/auth/reset", { config: { rateLimit: AUTH_RATE } }, async (request, reply) => {
+    const body = resetPasswordSchema.parse(request.body ?? {});
+    const identity = await resolveIdentity(request, reply);
+    const row = await prisma.passwordReset.findUnique({ where: { tokenHash: hashResetToken(body.token) } });
+    if (!row || row.usedAt || row.expiresAt.getTime() < Date.now()) {
+      throw errors.validation("This reset link has expired or was already used. Ask for a new one.", { field: "token" });
+    }
+
+    const passwordHash = await hashPassword(body.password);
+    const [user] = await prisma.$transaction([
+      prisma.user.update({
+        where: { id: row.userId },
+        data: { passwordHash, sessionVersion: { increment: 1 } },
+        include: { subscription: true },
+      }),
+      prisma.passwordReset.update({ where: { id: row.id }, data: { usedAt: new Date() } }),
+      prisma.passwordReset.deleteMany({ where: { userId: row.userId, id: { not: row.id } } }),
+    ]);
+
+    await mergeGuestIntoUser(identity.guestId, user.id);
+    await issueSession(reply, user.id, user.sessionVersion);
     const res: AuthResponse = { user: userToDTO(user) };
     return res;
   });

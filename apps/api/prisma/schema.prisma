@@ -20,12 +20,52 @@ model User {
   /// "free" | "starter" | "pro" | "business" — denormalised from Subscription for fast quota checks.
   plan             String   @default("free")
   stripeCustomerId String?  @unique
+  paddleCustomerId String?  @unique
+  /// Conversion-pack credits left; spent after the free allowance, never expire.
+  credits          Int      @default(0)
+  /// End of a 24-hour pass (Starter limits while in the future).
+  passUntil        DateTime?
+  /// Bumped on password change/reset; sessions carrying an older value are rejected.
+  sessionVersion   Int      @default(0)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  conversions  Conversion[]
-  subscription Subscription?
-  apiKeys      ApiKey[]
+  conversions    Conversion[]
+  subscription   Subscription?
+  apiKeys        ApiKey[]
+  passwordResets PasswordReset[]
+  purchases      Purchase[]
+}
+
+/// One-time purchases (conversion pack, 24-hour pass). The provider's
+/// transaction id is unique, so a re-delivered webhook can't grant twice.
+model Purchase {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// "paddle" | "stripe"
+  provider              String
+  providerTransactionId String    @unique
+  /// "pack" | "pass"
+  product               String
+  credits               Int       @default(0)
+  passUntil             DateTime?
+  createdAt             DateTime  @default(now())
+
+  @@index([userId, createdAt])
+}
+
+/// One-time password-reset link. Only the SHA-256 of the token is stored.
+model PasswordReset {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 model Subscription {
@@ -57,6 +97,8 @@ model Conversion {
   status      String    @default("queued")
   progress    Int       @default(0)
   sourceName  String
+  /// What paid for it: "free" (allowance) | "credit" (pack) | "credit_refunded" | "pass" | "plan".
+  chargedAs   String    @default("free")
   sourceExt   String
   targetExt   String
   sourceBytes BigInt

@@ -1,35 +1,12 @@
 import Stripe from "stripe";
 import type { User } from "@prisma/client";
-import { isPlanId, type BillingInterval, type PlanId } from "@anyform/shared";
+import { isOneTimeProductId, isPlanId, type BillingInterval, type PlanId } from "@anyform/shared";
 import { config } from "../config.js";
 import { prisma } from "../db.js";
 import { errors } from "../errors.js";
-import { effectivePlan, type BillingProvider, type SubscriptionSnapshot } from "./provider.js";
-
-type PaidPlan = Exclude<PlanId, "free">;
-
-interface PriceEntry {
-  plan: PaidPlan;
-  interval: BillingInterval;
-}
-
-/** Build the (plan, interval) ↔ Stripe price id map from env. */
-export function buildPriceMap(env: Record<string, string | undefined> = config as unknown as Record<string, string | undefined>): Map<string, PriceEntry> {
-  const map = new Map<string, PriceEntry>();
-  const entries: Array<[string, PaidPlan, BillingInterval]> = [
-    ["STRIPE_PRICE_STARTER_MONTHLY", "starter", "month"],
-    ["STRIPE_PRICE_STARTER_YEARLY", "starter", "year"],
-    ["STRIPE_PRICE_PRO_MONTHLY", "pro", "month"],
-    ["STRIPE_PRICE_PRO_YEARLY", "pro", "year"],
-    ["STRIPE_PRICE_BUSINESS_MONTHLY", "business", "month"],
-    ["STRIPE_PRICE_BUSINESS_YEARLY", "business", "year"],
-  ];
-  for (const [key, plan, interval] of entries) {
-    const id = env[key];
-    if (id) map.set(id, { plan, interval });
-  }
-  return map;
-}
+import { applySnapshot, grantPurchase } from "./apply.js";
+import { PriceMap } from "./prices.js";
+import type { BillingProvider, CheckoutItem, SubscriptionSnapshot } from "./provider.js";
 
 /** Stripe moved current_period_* to subscription items in the 2025 "basil" API; read either. */
 function periodEnd(sub: Stripe.Subscription): Date {
@@ -44,19 +21,18 @@ function idOf(ref: string | { id: string } | null | undefined): string | undefin
   return typeof ref === "string" ? ref : ref.id;
 }
 
+/**
+ * Stripe Checkout + Customer Portal. Not usable by a Georgia-registered business
+ * (Georgia is not a Stripe country); kept for a foreign entity (e.g. a US LLC).
+ */
 export class StripeBilling implements BillingProvider {
-  readonly name = "stripe";
+  readonly name = "stripe" as const;
   private readonly stripe: Stripe;
-  private readonly prices: Map<string, PriceEntry>;
+  private readonly prices: PriceMap;
 
   constructor(secretKey: string, private readonly webhookSecret: string | undefined) {
     this.stripe = new Stripe(secretKey);
-    this.prices = buildPriceMap();
-  }
-
-  private priceFor(plan: PaidPlan, interval: BillingInterval): string {
-    for (const [id, entry] of this.prices) if (entry.plan === plan && entry.interval === interval) return id;
-    throw errors.billingUnavailable();
+    this.prices = new PriceMap("STRIPE", config as unknown as Record<string, unknown>);
   }
 
   private async ensureCustomer(user: User): Promise<string> {
@@ -70,19 +46,26 @@ export class StripeBilling implements BillingProvider {
     return customer.id;
   }
 
-  async createCheckout(user: User, plan: PaidPlan, interval: BillingInterval): Promise<string> {
-    const price = this.priceFor(plan, interval);
+  async createCheckout(user: User, item: CheckoutItem): Promise<string> {
+    const price = this.prices.idFor(item);
+    if (!price) throw errors.billingUnavailable();
     const customer = await this.ensureCustomer(user);
-    const session = await this.stripe.checkout.sessions.create({
-      mode: "subscription",
+    const common = {
       customer,
       line_items: [{ price, quantity: 1 }],
       allow_promotion_codes: true,
       client_reference_id: user.id,
-      subscription_data: { metadata: { userId: user.id, plan, interval } },
       success_url: `${config.WEB_ORIGIN}/dashboard?checkout=success`,
       cancel_url: `${config.WEB_ORIGIN}/pricing?checkout=cancelled`,
-    });
+    };
+    const session =
+      item.kind === "subscription"
+        ? await this.stripe.checkout.sessions.create({
+            ...common,
+            mode: "subscription",
+            subscription_data: { metadata: { userId: user.id, plan: item.plan, interval: item.interval } },
+          })
+        : await this.stripe.checkout.sessions.create({ ...common, mode: "payment", metadata: { userId: user.id, product: item.product } });
     if (!session.url) throw errors.internal("Stripe did not return a checkout URL.");
     return session.url;
   }
@@ -96,8 +79,9 @@ export class StripeBilling implements BillingProvider {
     return session.url;
   }
 
-  async handleWebhook(rawBody: Buffer, signature: string | undefined): Promise<{ type: string; handled: boolean }> {
+  async handleWebhook(rawBody: Buffer, headers: Record<string, string | undefined>): Promise<{ type: string; handled: boolean }> {
     if (!this.webhookSecret) throw errors.billingUnavailable();
+    const signature = headers["stripe-signature"];
     if (!signature) throw errors.validation("Missing Stripe-Signature header.");
     let event: Stripe.Event;
     try {
@@ -109,6 +93,13 @@ export class StripeBilling implements BillingProvider {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object;
+        if (session.mode === "payment") {
+          const product = session.metadata?.product;
+          const userId = session.metadata?.userId ?? session.client_reference_id ?? undefined;
+          if (session.payment_status !== "paid" || !isOneTimeProductId(product) || !userId) return { type: event.type, handled: false };
+          await grantPurchase({ userId, provider: "stripe", providerTransactionId: session.id, product });
+          return { type: event.type, handled: true };
+        }
         const subId = idOf(session.subscription as string | Stripe.Subscription | null);
         if (!subId) return { type: event.type, handled: false };
         const sub = await this.stripe.subscriptions.retrieve(subId);
@@ -139,7 +130,8 @@ export class StripeBilling implements BillingProvider {
   private snapshot(sub: Stripe.Subscription, userId: string): SubscriptionSnapshot | undefined {
     const priceId = sub.items?.data?.[0]?.price?.id;
     if (!priceId) return undefined;
-    const entry = this.prices.get(priceId);
+    const found = this.prices.lookup(priceId);
+    const entry = found?.kind === "subscription" ? found : undefined;
     const metaPlan = sub.metadata?.plan;
     const plan: PlanId = entry?.plan ?? (isPlanId(metaPlan) ? metaPlan : "free");
     const interval: BillingInterval =
@@ -164,33 +156,4 @@ export class StripeBilling implements BillingProvider {
     if (!snap) return;
     await applySnapshot(snap);
   }
-}
-
-export async function applySnapshot(snap: SubscriptionSnapshot): Promise<void> {
-  const plan = effectivePlan(snap);
-  await prisma.$transaction([
-    prisma.subscription.upsert({
-      where: { userId: snap.userId },
-      create: {
-        userId: snap.userId,
-        providerSubscriptionId: snap.providerSubscriptionId,
-        providerPriceId: snap.providerPriceId,
-        plan: snap.plan,
-        interval: snap.interval,
-        status: snap.status,
-        currentPeriodEnd: snap.currentPeriodEnd,
-        cancelAtPeriodEnd: snap.cancelAtPeriodEnd,
-      },
-      update: {
-        providerSubscriptionId: snap.providerSubscriptionId,
-        providerPriceId: snap.providerPriceId,
-        plan: snap.plan,
-        interval: snap.interval,
-        status: snap.status,
-        currentPeriodEnd: snap.currentPeriodEnd,
-        cancelAtPeriodEnd: snap.cancelAtPeriodEnd,
-      },
-    }),
-    prisma.user.update({ where: { id: snap.userId }, data: { plan } }),
-  ]);
 }

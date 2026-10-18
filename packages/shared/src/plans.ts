@@ -128,6 +128,49 @@ export const PLANS: Record<PlanId, Plan> = {
   },
 };
 
+/**
+ * One-time purchases for people who won't subscribe. Prices in USD; provider
+ * price IDs come from env (PADDLE_PRICE_PACK / _PASS, STRIPE_PRICE_PACK / _PASS).
+ */
+export type OneTimeProductId = "pack" | "pass";
+
+export interface OneTimeProduct {
+  id: OneTimeProductId;
+  name: string;
+  tagline: string;
+  price: number;
+  /** Conversions added to the account's credit balance (pack). Credits never expire. */
+  credits?: number;
+  /** Hours of the `grantsPlan` limits (pass). Buying again while active extends it. */
+  hours?: number;
+  grantsPlan?: Exclude<PlanId, "free">;
+  features: readonly string[];
+}
+
+export const ONE_TIME_PRODUCTS: Record<OneTimeProductId, OneTimeProduct> = {
+  pack: {
+    id: "pack",
+    name: "Conversion pack",
+    tagline: "Pay once. No subscription.",
+    price: 4.99,
+    credits: 20,
+    features: ["20 conversions", "Never expire", "Used after your free 10", "Files up to 100 MB"],
+  },
+  pass: {
+    id: "pass",
+    name: "24-hour pass",
+    tagline: "A big day of converting.",
+    price: 2.99,
+    hours: 24,
+    grantsPlan: "starter",
+    features: ["Unlimited conversions for 24 hours", "Starter limits: 500 MB files, 2 at once", "Starts when you pay", "No renewal"],
+  },
+};
+
+export function isOneTimeProductId(v: unknown): v is OneTimeProductId {
+  return v === "pack" || v === "pass";
+}
+
 export const PLAN_ORDER: readonly PlanId[] = ["free", "starter", "pro", "business"];
 export const PAID_PLANS: readonly PlanId[] = ["starter", "pro", "business"];
 

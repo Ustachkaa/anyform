@@ -81,6 +81,21 @@ describe("quota", () => {
     expect(computeQuota("pro", 9999).limit).toBeNull();
   });
 
+  it("keeps a free user going on pack credits once the free 10 are used", () => {
+    const cfg = { freeConversions: 10, period: "lifetime" as const };
+    const q = computeQuota("free", 10, cfg, new Date(), { credits: 3 });
+    expect(q.remaining).toBe(0);
+    expect(q.credits).toBe(3);
+    expect(q.exhausted).toBe(false);
+    expect(computeQuota("free", 10, cfg, new Date(), { credits: 0 }).exhausted).toBe(true);
+  });
+
+  it("reports a pass only while it is still running", () => {
+    const now = new Date("2026-10-19T12:00:00Z");
+    expect(computeQuota("starter", 0, undefined, now, { passUntil: new Date("2026-10-20T12:00:00Z") }).passUntil).toBe("2026-10-20T12:00:00.000Z");
+    expect(computeQuota("free", 0, undefined, now, { passUntil: new Date("2026-10-19T11:00:00Z") }).passUntil).toBeNull();
+  });
+
   it("reports a reset date only for monthly periods", () => {
     expect(computeQuota("free", 0, { freeConversions: 10, period: "lifetime" }).resetsAt).toBeNull();
     expect(computeQuota("free", 0, { freeConversions: 10, period: "monthly" }).resetsAt).toMatch(/^\d{4}-\d{2}-01T/);

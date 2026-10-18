@@ -10,7 +10,8 @@ import { getServerUsage, getSessionUser } from "@/lib/session";
 export const metadata: Metadata = { title: "Dashboard", robots: { index: false } };
 export const dynamic = "force-dynamic";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ checkout?: string }> }) {
+  const { checkout } = await searchParams;
   const user = await getSessionUser();
   if (!user) redirect("/login?next=/dashboard");
   const usage = await getServerUsage();
@@ -28,6 +29,12 @@ export default async function DashboardPage() {
         <AccountActions paid={paid} />
       </div>
 
+      {checkout === "success" && (
+        <p role="status" className="mt-6 rounded-[4px] border border-line bg-accent/20 px-4 py-3 text-sm text-ink">
+          Payment received, thank you. It can take a few seconds to show up here; refresh if it hasn't yet. Your receipt comes from Paddle.
+        </p>
+      )}
+
       <div className="mt-8 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         <section className="rounded-[6px] border border-line bg-paper-2 p-6" aria-labelledby="usage">
           <h2 id="usage" className="mono text-xs uppercase tracking-widest text-ink-3">
@@ -44,7 +51,11 @@ export default async function DashboardPage() {
               <Link href="/pricing" className="link-ink">
                 Plans start at $7.99/mo
               </Link>{" "}
-              for unlimited conversions.
+              for unlimited conversions, or{" "}
+              <Link href="/pricing#pay-once" className="link-ink">
+                pay once
+              </Link>
+              .
             </p>
           )}
         </section>

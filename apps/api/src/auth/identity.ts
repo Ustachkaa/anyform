@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { getPlan, type PlanId } from "@anyform/shared";
+import { getPlan, ONE_TIME_PRODUCTS, type PlanId } from "@anyform/shared";
 import { prisma } from "../db.js";
 import { config } from "../config.js";
 import { errors } from "../errors.js";
@@ -10,7 +10,14 @@ import { readSession } from "./session.js";
 export interface Identity {
   userId?: string;
   guestId: string;
+  /** Effective plan: the subscription's, or "starter" while a 24-hour pass is active. */
   plan: PlanId;
+  /** Why `plan` applies: no payment, a subscription, or a 24-hour pass. */
+  planSource: "free" | "subscription" | "pass";
+  /** Conversion-pack credits left (signed-in users only). */
+  credits: number;
+  /** End of an active 24-hour pass. */
+  passUntil?: Date;
   /** Salted SHA-256 of the client IP, for abuse throttling only. */
   ipHash: string;
 }
@@ -34,12 +41,30 @@ export async function resolveIdentity(request: FastifyRequest, reply: FastifyRep
   if (request.identity) return request.identity;
   const guestId = resolveGuestId(request, reply);
   const ipHash = hashIp(request.ip);
-  let identity: Identity = { guestId, plan: "free", ipHash };
+  let identity: Identity = { guestId, plan: "free", planSource: "free", credits: 0, ipHash };
 
-  const userId = await readSession(request);
-  if (userId) {
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, plan: true } });
-    if (user) identity = { ...identity, userId: user.id, plan: getPlan(user.plan).id };
+  const session = await readSession(request);
+  if (session) {
+    const user = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { id: true, plan: true, sessionVersion: true, credits: true, passUntil: true },
+    });
+    // A password change/reset bumps sessionVersion, so sessions issued before it stop working.
+    if (user && user.sessionVersion === session.sessionVersion) {
+      const subscribed = getPlan(user.plan).id;
+      const pass = user.passUntil && user.passUntil.getTime() > Date.now() ? user.passUntil : undefined;
+      identity = {
+        ...identity,
+        userId: user.id,
+        credits: user.credits,
+        passUntil: pass,
+        ...(subscribed !== "free"
+          ? { plan: subscribed, planSource: "subscription" as const }
+          : pass
+            ? { plan: ONE_TIME_PRODUCTS.pass.grantsPlan ?? "starter", planSource: "pass" as const }
+            : {}),
+      };
+    }
   }
   request.identity = identity;
   return identity;

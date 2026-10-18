@@ -16,11 +16,12 @@ vi.mock("./db.js", () => ({
 
 let app: FastifyInstance;
 
+// Importing the whole app (every route and engine) took 7–10+ s on a loaded dev box, past the 10 s default.
 beforeAll(async () => {
   const { buildApp } = await import("./server.js");
   app = await buildApp({ logger: false });
   await app.ready();
-});
+}, 30_000);
 
 afterAll(async () => {
   await app.close();

@@ -3,12 +3,18 @@ import type {
   ApiErrorCode,
   AuthResponse,
   BillingInterval,
+  ChangePasswordInput,
   CheckoutResponse,
   ConversionDTO,
   CreateConversionResponse,
+  DeleteAccountInput,
+  ForgotPasswordInput,
   LoginInput,
+  OneTimeProductId,
   PlanId,
+  ResetPasswordInput,
   SignupInput,
+  UpdateProfileInput,
   UsageDTO,
   UserDTO,
 } from "@anyform/shared";
@@ -95,6 +101,28 @@ export function logout(): Promise<void> {
   return request<void>("/auth/logout", { method: "POST" });
 }
 
+export function forgotPassword(input: ForgotPasswordInput): Promise<{ ok: true }> {
+  return request<{ ok: true }>("/auth/forgot", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function resetPassword(input: ResetPasswordInput): Promise<AuthResponse> {
+  return request<AuthResponse>("/auth/reset", { method: "POST", body: JSON.stringify(input) });
+}
+
+// ─── Account ───────────────────────────────────────────────────────────────
+
+export function updateProfile(input: UpdateProfileInput): Promise<AuthResponse> {
+  return request<AuthResponse>("/account", { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function changePassword(input: ChangePasswordInput): Promise<AuthResponse> {
+  return request<AuthResponse>("/account/password", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function deleteAccount(input: DeleteAccountInput): Promise<void> {
+  return request<void>("/account", { method: "DELETE", body: JSON.stringify(input) });
+}
+
 // ─── Usage ─────────────────────────────────────────────────────────────────
 
 export function getUsage(): Promise<UsageDTO> {
@@ -164,6 +192,10 @@ export function downloadUrl(id: string): string {
 
 export function checkout(plan: PlanId, interval: BillingInterval): Promise<CheckoutResponse> {
   return request<CheckoutResponse>("/billing/checkout", { method: "POST", body: JSON.stringify({ plan, interval }) });
+}
+
+export function checkoutProduct(product: OneTimeProductId): Promise<CheckoutResponse> {
+  return request<CheckoutResponse>("/billing/checkout", { method: "POST", body: JSON.stringify({ product }) });
 }
 
 export function portal(): Promise<CheckoutResponse> {

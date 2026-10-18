@@ -13,8 +13,10 @@ export function UsageMeter({ usage, compact = false, className = "" }: Props) {
   if (usage.limit === null) {
     return (
       <p className={`text-sm text-ink-2 ${className}`}>
-        <span className="mono rounded-[3px] bg-ink px-1.5 py-0.5 text-xs text-paper">{plan.name}</span>{" "}
-        Unlimited conversions.
+        <span className="mono rounded-[3px] bg-ink px-1.5 py-0.5 text-xs text-paper">{usage.passUntil ? "24-hour pass" : plan.name}</span>{" "}
+        Unlimited conversions
+        {usage.passUntil ? ` until ${new Date(usage.passUntil).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}` : ""}.
+        {usage.credits > 0 && !compact ? ` Your ${usage.credits} pack credit${usage.credits === 1 ? "" : "s"} wait for later.` : ""}
       </p>
     );
   }
@@ -28,7 +30,11 @@ export function UsageMeter({ usage, compact = false, className = "" }: Props) {
           <span className="display text-ink font-semibold">{remaining}</span>
           <span className="mono text-ink-3"> / {limit}</span> free conversion{remaining === 1 ? "" : "s"} left
         </p>
-        {usage.resetsAt && !compact ? (
+        {usage.credits > 0 ? (
+          <p className="mono text-xs text-ink-2">
+            + {usage.credits} pack credit{usage.credits === 1 ? "" : "s"}
+          </p>
+        ) : usage.resetsAt && !compact ? (
           <p className="mono text-xs text-ink-3">resets {new Date(usage.resetsAt).toLocaleDateString()}</p>
         ) : null}
       </div>

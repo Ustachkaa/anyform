@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Faq } from "@/components/Faq";
+import { OneTimeOffers } from "@/components/OneTimeOffers";
 import { PricingTable } from "@/components/PricingTable";
 import { Reveal } from "@/components/Reveal";
 
@@ -18,6 +19,10 @@ const FAQ = [
     a: "No: they're a one-time allowance so you can try Anyform properly. If you sign up, the ones you've already used carry over to your account.",
   },
   {
+    q: "I don't want a subscription. Can I pay once?",
+    a: "Yes. A conversion pack is $4.99 for 20 conversions that never expire; they're used after your free 10. A 24-hour pass is $2.99 for a day of unlimited conversions on Starter limits. Neither renews.",
+  },
+  {
     q: "Can I cancel anytime?",
     a: "Yes, from the dashboard, in two clicks. You keep your plan until the end of the period you've paid for.",
   },
@@ -31,7 +36,7 @@ const FAQ = [
   },
   {
     q: "Which payment methods do you accept?",
-    a: "Cards, Apple Pay and Google Pay, through our payment provider. We never see your card number.",
+    a: "Cards, PayPal, Apple Pay and Google Pay. Our order process is run by our online reseller Paddle.com, which also handles sales tax and VAT and sends your receipts. We never see your card number.",
   },
 ];
 
@@ -49,6 +54,8 @@ export default function PricingPage() {
       </Reveal>
 
       <PricingTable className="mt-12" />
+
+      <OneTimeOffers className="mx-auto mt-20 max-w-4xl" />
 
       <section className="mx-auto mt-24 max-w-3xl" aria-labelledby="faq">
         <h2 id="faq" className="display text-3xl font-semibold">
