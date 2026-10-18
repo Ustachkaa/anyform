@@ -20,7 +20,9 @@ import { EngineError, type Engine, type EngineContext } from "./types.js";
  *   image → pdf                            pdf-lib, then imagemagick
  *   pdf → jpg/png/webp                     poppler, then imagemagick
  *   pdf → txt                              poppler, then libreoffice
- *   pdf → docx/odt/rtf/html/doc            libreoffice           (pdf → md: libreoffice→docx, pandoc→md)
+ *   pdf → html                             poppler (pdftohtml), then libreoffice
+ *   pdf → md                               poppler→html + pandoc, then libreoffice→docx + pandoc
+ *   pdf → docx/odt/rtf/doc                 libreoffice
  *   md → pdf                               pandoc→html, libreoffice→pdf
  *   md ↔ text formats                      pandoc
  *   document → pdf                         libreoffice
@@ -94,7 +96,10 @@ export function candidatesFor(fromExt: string, toExt: string): Engine[] {
   if (f === "pdf") {
     if (tc === "image") return [popplerEngine, imagemagickEngine];
     if (t === "txt") return [popplerEngine, libreofficeEngine];
-    if (t === "md") return [chain(libreofficeEngine, "docx", pandocEngine)];
+    // LibreOffice's PDF import puts body text in drawing frames, which its HTML
+    // export and pandoc both drop (only the title survived), so prefer pdftohtml.
+    if (t === "html") return [popplerEngine, libreofficeEngine];
+    if (t === "md") return [chain(popplerEngine, "html", pandocEngine), chain(libreofficeEngine, "docx", pandocEngine)];
     if (tc === "document") return [libreofficeEngine];
     if (tc === "ebook") return [calibreEngine];
   }

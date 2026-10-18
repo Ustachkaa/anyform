@@ -62,7 +62,7 @@ docs            Business plan, architecture, brand, roadmap
 
 | Command | What it does |
 | --- | --- |
-| `npm run dev:db` | Embedded PostgreSQL on :5433 (no Docker), data in `data/pg` |
+| `npm run dev:db` | Embedded PostgreSQL on :5433 (no Docker), data in `data/pg`, server log in `data/pg.log` |
 | `bash scripts/e2e.sh` | 24-check smoke test against a running stack |
 | `npm run build` | Build shared → api → web |
 | `npm run typecheck` | Typecheck every workspace |

@@ -10,7 +10,7 @@
  *   npm run dev:db
  */
 import EmbeddedPostgres from "embedded-postgres";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,6 +36,8 @@ const databaseDir = resolve(root, "data", "pg");
 const firstRun = !existsSync(resolve(databaseDir, "PG_VERSION"));
 
 mkdirSync(databaseDir, { recursive: true });
+const serverLogPath = resolve(root, "data", "pg.log");
+const serverLog = createWriteStream(serverLogPath, { flags: "a" });
 
 const pg = new EmbeddedPostgres({
   databaseDir,
@@ -47,8 +49,12 @@ const pg = new EmbeddedPostgres({
   // UTF-8 text (arrows in error messages, any filename), so force UTF8 like the
   // official postgres Docker image does.
   initdbFlags: ["--encoding=UTF8", "--locale=C"],
-  onLog: (msg) => process.stdout.write(String(msg).endsWith("\n") ? String(msg) : `${msg}\n`),
-  onError: (msg) => process.stderr.write(String(msg).endsWith("\n") ? String(msg) : `${msg}\n`),
+  // Server logs go to a file, not the console. Postgres writes its log into a
+  // pipe this process drains; on Windows console/pipe writes are synchronous,
+  // so a frozen or closed terminal blocked this process, the pipe filled, and
+  // Postgres hung mid-write (port open, no replies, deaf to pg_ctl stop).
+  onLog: (msg) => serverLog.write(String(msg).endsWith("\n") ? String(msg) : `${msg}\n`),
+  onError: (msg) => serverLog.write(String(msg).endsWith("\n") ? String(msg) : `${msg}\n`),
 });
 
 async function main() {
@@ -70,6 +76,7 @@ async function main() {
     }
   }
   console.log(`[dev-db] PostgreSQL ready on postgresql://${user}:***@localhost:${port}/${database}`);
+  console.log(`[dev-db] server log: ${serverLogPath}`);
   console.log("[dev-db] press Ctrl+C to stop");
 
   const shutdown = async () => {

@@ -264,5 +264,5 @@ Decisions made while implementing that refine the contract above:
 - **Stripe v18**: `current_period_end` is read from the subscription item
   (Stripe API "basil"), with a legacy fallback.
 - Extra env vars with defaults: `API_HOST`, `COOKIE_DOMAIN`,
-  `PDFTOTEXT_PATH`, `MAGICK_PATH`, `GUEST_UPLOADS_PER_HOUR`,
+  `PDFTOTEXT_PATH`, `PDFTOHTML_PATH`, `MAGICK_PATH`, `GUEST_UPLOADS_PER_HOUR`,
   `GLOBAL_RATE_LIMIT_PER_MINUTE`, `CLEANUP_CRON`.

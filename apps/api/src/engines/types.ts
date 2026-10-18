@@ -34,15 +34,28 @@ export class EngineError extends Error {
   }
 }
 
-/** Generic memoised probe helper for binary-backed engines. */
-export function memo<T>(fn: () => Promise<T>): () => Promise<T> {
-  let cached: Promise<T> | undefined;
+/**
+ * Memoised probe helper for binary-backed engines. An available engine is
+ * cached for the life of the process; an unavailable one is re-probed after
+ * `retryMs`, so a binary that was slow to start (LibreOffice cold start) or was
+ * installed after boot is picked up without restarting the worker.
+ */
+export function memo(fn: () => Promise<EngineInfo>, retryMs = 60_000): () => Promise<EngineInfo> {
+  let cached: Promise<EngineInfo> | undefined;
+  let expiresAt = Infinity;
   return () => {
-    if (!cached) {
-      cached = fn().catch((err) => {
-        cached = undefined;
-        throw err;
-      });
+    if (!cached || Date.now() > expiresAt) {
+      expiresAt = Infinity;
+      cached = fn().then(
+        (info) => {
+          if (!info.available) expiresAt = Date.now() + retryMs;
+          return info;
+        },
+        (err) => {
+          cached = undefined;
+          throw err;
+        },
+      );
     }
     return cached;
   };

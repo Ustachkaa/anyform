@@ -52,6 +52,9 @@ describe("buildFfmpegArgs", () => {
     expect(after(args, "-c:a")).toBe("libopus");
     expect(after(args, "-crf")).toBe("32");
     expect(after(args, "-b:v")).toBe("0");
+    // not libvpx's default slowest preset
+    expect(after(args, "-deadline")).toBe("good");
+    expect(after(args, "-cpu-used")).toBe("4");
   });
 
   it("builds a palette filter graph for gif", () => {

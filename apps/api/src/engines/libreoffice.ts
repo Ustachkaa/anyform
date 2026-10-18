@@ -10,15 +10,27 @@ import { EngineError, memo, type Engine, type EngineContext } from "./types.js";
  * LibreOffice headless — office documents, presentations, spreadsheets and
  * PDF import. Each job gets a private user profile so concurrent runs do not
  * fight over the lock file.
+ *
+ * On Windows `soffice.exe` is a GUI-subsystem launcher: it never answers
+ * `--version` on stdout, so the probe would time out. `soffice.com`, shipped in
+ * the same folder, is the console launcher and is always tried first.
  */
+export function windowsConsoleLauncher(bin: string | undefined): Array<string | undefined> {
+  if (process.platform !== "win32" || !bin || !/soffice\.exe$/i.test(bin)) return [bin];
+  return [bin.replace(/\.exe$/i, ".com"), bin];
+}
+
 export const sofficeCandidates = (): Array<string | undefined> => [
-  config.SOFFICE_PATH,
+  ...windowsConsoleLauncher(config.SOFFICE_PATH),
   "soffice",
   "libreoffice",
   ...(process.platform === "win32"
-    ? ["C:\\Program Files\\LibreOffice\\program\\soffice.exe", "C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe"]
+    ? ["C:\\Program Files\\LibreOffice\\program\\soffice.com", "C:\\Program Files (x86)\\LibreOffice\\program\\soffice.com"]
     : ["/usr/bin/soffice", "/usr/lib/libreoffice/program/soffice", "/Applications/LibreOffice.app/Contents/MacOS/soffice"]),
 ];
+
+/** A cold LibreOffice start (first run, fresh profile, busy machine) easily exceeds the default 15 s. */
+const SOFFICE_PROBE_TIMEOUT_MS = 60_000;
 
 /** `--convert-to` filter spec per target extension. */
 export const LO_EXPORT_FILTERS: Record<string, string> = {
@@ -59,11 +71,11 @@ export function buildSofficeArgs(input: string, outDir: string, profileDir: stri
 export const libreofficeEngine: Engine = {
   name: "libreoffice",
   probe: memo(async (): Promise<EngineInfo> => {
-    const found = await findBinary(sofficeCandidates(), ["--version"]);
+    const found = await findBinary(sofficeCandidates(), ["--version"], SOFFICE_PROBE_TIMEOUT_MS);
     return { name: "libreoffice", available: Boolean(found), version: found?.version };
   }),
   async convert(ctx: EngineContext): Promise<void> {
-    const found = await findBinary(sofficeCandidates(), ["--version"]);
+    const found = await findBinary(sofficeCandidates(), ["--version"], SOFFICE_PROBE_TIMEOUT_MS);
     if (!found) throw new EngineError("libreoffice", "LibreOffice is not installed");
 
     const outDir = path.join(ctx.tmpDir, "lo-out");

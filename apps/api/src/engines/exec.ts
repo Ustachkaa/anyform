@@ -128,12 +128,19 @@ export interface FoundBinary {
 }
 
 const probeCache = new Map<string, Promise<FoundBinary | null>>();
+/** How long a "not found" result is trusted before the candidates are tried again. */
+const NOT_FOUND_TTL_MS = 60_000;
 
 /**
  * Try each candidate path/name until one spawns. Any exit code counts as
- * "present" (some tools return 1 for --version). Cached per candidate list.
+ * "present" (some tools return 1 for --version). Cached per candidate list;
+ * a miss is only cached for NOT_FOUND_TTL_MS so a slow or late binary recovers.
  */
-export function findBinary(candidates: ReadonlyArray<string | undefined>, versionArgs: readonly string[] = ["--version"]): Promise<FoundBinary | null> {
+export function findBinary(
+  candidates: ReadonlyArray<string | undefined>,
+  versionArgs: readonly string[] = ["--version"],
+  timeoutMs = 15_000,
+): Promise<FoundBinary | null> {
   const list = candidates.filter((c): c is string => Boolean(c));
   const key = `${list.join("|")}::${versionArgs.join(" ")}`;
   const cached = probeCache.get(key);
@@ -141,7 +148,7 @@ export function findBinary(candidates: ReadonlyArray<string | undefined>, versio
   const p = (async () => {
     for (const bin of list) {
       try {
-        const res = await run(bin, versionArgs, { timeoutMs: 15_000 });
+        const res = await run(bin, versionArgs, { timeoutMs });
         const firstLine = (res.stdout || res.stderr).split(/\r?\n/).find((l) => l.trim()) ?? "";
         const m = /(\d+\.\d+(?:\.\d+)?)/.exec(firstLine);
         return { path: bin, version: m?.[1] };
@@ -154,6 +161,9 @@ export function findBinary(candidates: ReadonlyArray<string | undefined>, versio
     return null;
   })();
   probeCache.set(key, p);
+  void p.then((found) => {
+    if (!found) setTimeout(() => probeCache.get(key) === p && probeCache.delete(key), NOT_FOUND_TTL_MS).unref();
+  });
   return p;
 }
 

@@ -7,12 +7,28 @@ import { findBinary, runOk } from "./exec.js";
 import { EngineError, memo, type Engine, type EngineContext } from "./types.js";
 
 /**
- * poppler-utils — PDF → raster image (pdftoppm) and PDF → text (pdftotext).
- * Renders one page (the first, or the first page listed in `options.pages`);
+ * poppler-utils — PDF → raster image (pdftoppm), PDF → text (pdftotext) and
+ * PDF → HTML (pdftohtml).
+ * Image output renders one page (the first, or the first page listed in `options.pages`);
  * multi-page → ZIP is a roadmap item.
  */
 export const pdftoppmCandidates = (): Array<string | undefined> => [config.PDFTOPPM_PATH, "pdftoppm"];
 export const pdftotextCandidates = (): Array<string | undefined> => [config.PDFTOTEXT_PATH, "pdftotext"];
+/** poppler ships its tools side by side, so a configured pdftoppm/pdftotext also locates pdftohtml. */
+function sibling(bin: string | undefined, tool: string): string | undefined {
+  return bin ? path.join(path.dirname(bin), tool + path.extname(bin)) : undefined;
+}
+export const pdftohtmlCandidates = (): Array<string | undefined> => [
+  config.PDFTOHTML_PATH,
+  sibling(config.PDFTOPPM_PATH, "pdftohtml"),
+  sibling(config.PDFTOTEXT_PATH, "pdftohtml"),
+  "pdftohtml",
+];
+
+/** Single self-contained HTML file, text only (images would be written as separate files). */
+export function buildPdftohtmlArgs(input: string, output: string): string[] {
+  return ["-q", "-s", "-i", "-noframes", "-enc", "UTF-8", input, output];
+}
 
 export function firstPage(pages?: string): number {
   if (!pages) return 1;
@@ -47,6 +63,17 @@ export const popplerEngine: Engine = {
         await runOk(found.path, ["-layout", "-enc", "UTF-8", ctx.inputPath, ctx.outputPath], { timeoutMs: ctx.timeoutMs, cwd: ctx.tmpDir });
       } catch (err) {
         throw new EngineError("poppler", `pdftotext failed: ${(err as Error).message}`);
+      }
+      return;
+    }
+
+    if (ctx.toExt === "html") {
+      const found = await findBinary(pdftohtmlCandidates(), ["-v"]);
+      if (!found) throw new EngineError("poppler", "pdftohtml is not installed");
+      try {
+        await runOk(found.path, buildPdftohtmlArgs(ctx.inputPath, ctx.outputPath), { timeoutMs: ctx.timeoutMs, cwd: ctx.tmpDir });
+      } catch (err) {
+        throw new EngineError("poppler", `pdftohtml failed: ${(err as Error).message}`);
       }
       return;
     }

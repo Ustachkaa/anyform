@@ -15,10 +15,18 @@ export const magickCandidates = (): Array<string | undefined> => [
   ...(process.platform === "win32" ? [] : ["convert"]),
 ];
 
+/**
+ * Targets that hold exactly one image. Given a multi-frame source (animated
+ * GIF, HEIC with several images) ImageMagick would write output-0.jpg,
+ * output-1.jpg, … and never `output.jpg`, so these read only the first frame.
+ */
+export const SINGLE_FRAME_TARGETS = new Set(["jpg", "png", "bmp"]);
+
 export function buildMagickArgs(input: string, output: string, fromExt: string, toExt: string, o: EngineContext["options"]): string[] {
   // Explicit input format prefix avoids ImageMagick guessing from magic bytes
   // for containers it may misdetect (heic/heif share a brand list).
-  const inSpec = fromExt === "heic" ? `HEIC:${input}` : input;
+  const frame = SINGLE_FRAME_TARGETS.has(toExt) ? `${input}[0]` : input;
+  const inSpec = fromExt === "heic" ? `HEIC:${frame}` : frame;
   const args: string[] = [inSpec, "-auto-orient"];
   if (o.width || o.height) args.push("-resize", `${o.width ?? ""}x${o.height ?? ""}>`);
   if (toExt === "jpg") {

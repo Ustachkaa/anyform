@@ -158,7 +158,8 @@ export function buildFfmpegArgs(input: string, output: string, toExt: string, o:
       args.push("-c:a", "aac", "-b:a", ab, "-f", "mpegts");
       break;
     case "webm":
-      args.push("-c:v", "libvpx-vp9", "-row-mt", "1", "-pix_fmt", "yuv420p");
+      // libvpx defaults to its slowest preset (cpu-used 0): a 10 s 360p clip took 200+ s.
+      args.push("-c:v", "libvpx-vp9", "-deadline", "good", "-cpu-used", "4", "-row-mt", "1", "-pix_fmt", "yuv420p");
       if (vb) args.push("-b:v", kbps(vb));
       else args.push("-crf", String(vp9Crf(o.quality)), "-b:v", "0");
       pushVf();

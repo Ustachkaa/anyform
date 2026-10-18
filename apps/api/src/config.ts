@@ -59,6 +59,7 @@ const schema = z.object({
   CALIBRE_PATH: optStr,
   PDFTOPPM_PATH: optStr,
   PDFTOTEXT_PATH: optStr,
+  PDFTOHTML_PATH: optStr,
   MAGICK_PATH: optStr,
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(64).default(2),
   JOB_TIMEOUT_MS: z.coerce.number().int().min(10_000).default(900_000),

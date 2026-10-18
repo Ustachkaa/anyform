@@ -26,6 +26,9 @@ describe("engine registry resolution order", () => {
     expect(names("pdf", "png")).toEqual(["poppler", "imagemagick"]);
     expect(names("pdf", "txt")).toEqual(["poppler", "libreoffice"]);
     expect(names("pdf", "docx")).toEqual(["libreoffice"]);
+    // LibreOffice's PDF import loses body text on the way to html/md
+    expect(names("pdf", "html")).toEqual(["poppler", "libreoffice"]);
+    expect(names("pdf", "md")).toEqual(["poppler+pandoc", "libreoffice+pandoc"]);
   });
 
   it("handles documents with libreoffice/pandoc and chains where needed", () => {
