@@ -104,7 +104,7 @@ function qualityNotes(from: FormatDef, to: FormatDef): string[] {
   if (from.category === "video" && to.category === "audio") notes.push("Only the first audio track is extracted. Video is discarded, so the result is typically 5–10% of the original size.");
 
   if (from.ext === "pdf" && (to.ext === "docx" || to.ext === "odt" || to.ext === "rtf")) notes.push("Layout-heavy PDFs (magazines, forms, multi-column) may need touch-ups after conversion. Text-heavy PDFs convert cleanly.");
-  if (from.ext === "pdf" && to.ext === "txt") notes.push("Only the text layer is extracted. Scanned PDFs without a text layer produce an empty file; OCR is on the roadmap.");
+  if (from.ext === "pdf" && to.ext === "txt") notes.push("Only the text layer is extracted. Scanned PDFs without a text layer have nothing to extract, so the conversion stops and tells you instead of handing back a blank file; OCR is on the roadmap.");
   if (from.ext === "pdf" && to.category === "image") notes.push("Each page is rendered at 150 DPI. Multi-page PDFs produce a ZIP of images.");
   if (to.ext === "pdf" && from.category !== "image" && from.ext !== "pdf") notes.push("Fonts are embedded and page breaks follow the document's own page setup, so the PDF prints exactly as it looks.");
   if (from.category === "spreadsheet" && to.ext === "csv") notes.push("CSV holds one sheet of plain values: formulas become their results, and formatting is dropped. Only the first sheet is exported.");

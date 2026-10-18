@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { Logger } from "pino";
@@ -9,6 +9,7 @@ import { CommandTimeoutError } from "../engines/exec.js";
 import { EngineError, resolveEngine } from "../engines/registry.js";
 import { sanitiseErrorMessage } from "../http.js";
 import { buildKey, getStorage } from "../storage/index.js";
+import { locateOutput, noOutputMessage } from "./output.js";
 
 /**
  * The convert job (ARCHITECTURE §5). Deterministic failures (bad file,
@@ -93,8 +94,11 @@ export async function runConversion(conversionId: string, log: Logger): Promise<
       log: (msg) => jobLog.debug(msg),
     });
 
-    const out = await stat(outputPath).catch(() => null);
-    if (!out || out.size === 0) throw new EngineError(engine.name, "The engine finished but produced an empty file.");
+    const out = await locateOutput(outputPath);
+    if (!out.ok) {
+      jobLog.warn({ engine: engine.name, reason: out.reason }, "engine exited cleanly without usable output");
+      throw new EngineError(engine.name, noOutputMessage(row.sourceExt, row.targetExt, out.reason));
+    }
 
     const outputKey = buildKey("out", row.id, row.targetExt, row.createdAt);
     try {
@@ -110,14 +114,14 @@ export async function runConversion(conversionId: string, log: Logger): Promise<
         status: "done",
         progress: 100,
         outputKey,
-        outputBytes: BigInt(out.size),
+        outputBytes: BigInt(out.bytes),
         outputName: row.outputName ?? replaceExt(row.sourceName, row.targetExt),
         engine: engine.name,
         finishedAt: new Date(),
         error: null,
       },
     });
-    jobLog.info({ engine: engine.name, bytes: out.size }, "done");
+    jobLog.info({ engine: engine.name, bytes: out.bytes }, "done");
     return { ok: true, engine: engine.name };
   } catch (err) {
     const message =
