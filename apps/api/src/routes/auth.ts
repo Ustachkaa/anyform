@@ -2,12 +2,13 @@ import type { FastifyPluginAsync } from "fastify";
 import { forgotPasswordSchema, loginSchema, resetPasswordSchema, signupSchema, type AuthResponse } from "@anyform/shared";
 import { Prisma } from "@prisma/client";
 import { mergeGuestIntoUser, requireUser, resolveIdentity } from "../auth/identity.js";
-import { hashPassword, verifyPassword } from "../auth/password.js";
+import { clearFailures, lockedForSeconds, recordFailure } from "../auth/lockout.js";
+import { hashPassword, verifyAgainstNobody, verifyPassword } from "../auth/password.js";
 import { hashResetToken, sendResetLink } from "../auth/reset.js";
 import { clearSession, issueSession } from "../auth/session.js";
 import { prisma } from "../db.js";
 import { userToDTO } from "../dto.js";
-import { errors } from "../errors.js";
+import { ApiHttpError, errors } from "../errors.js";
 
 const AUTH_RATE = { max: 20, timeWindow: "15 minutes" };
 
@@ -43,9 +44,18 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     const body = loginSchema.parse(request.body ?? {});
     const identity = await resolveIdentity(request, reply);
 
+    const wait = lockedForSeconds(body.email);
+    if (wait > 0) {
+      throw new ApiHttpError(429, "RATE_LIMITED", `Too many wrong passwords for this account. Try again in ${Math.ceil(wait / 60)} minute${wait > 60 ? "s" : ""}, or reset your password.`, { retryAfterSeconds: wait });
+    }
+
     const user = await prisma.user.findUnique({ where: { email: body.email }, include: { subscription: true } });
-    const ok = user ? await verifyPassword(body.password, user.passwordHash) : false;
-    if (!user || !ok) throw errors.unauthorized("Wrong email or password.");
+    const ok = user ? await verifyPassword(body.password, user.passwordHash) : await verifyAgainstNobody(body.password);
+    if (!user || !ok) {
+      recordFailure(body.email);
+      throw errors.unauthorized("Wrong email or password.");
+    }
+    clearFailures(body.email);
 
     await mergeGuestIntoUser(identity.guestId, user.id);
     await issueSession(reply, user.id, user.sessionVersion);
@@ -83,6 +93,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       prisma.passwordReset.deleteMany({ where: { userId: row.userId, id: { not: row.id } } }),
     ]);
 
+    clearFailures(user.email);
     await mergeGuestIntoUser(identity.guestId, user.id);
     await issueSession(reply, user.id, user.sessionVersion);
     const res: AuthResponse = { user: userToDTO(user) };

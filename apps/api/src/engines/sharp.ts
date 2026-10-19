@@ -1,4 +1,4 @@
-import sharp from "sharp";
+import sharp, { type Sharp } from "sharp";
 import type { EngineInfo } from "@anyform/shared";
 import { EngineError, type Engine, type EngineContext } from "./types.js";
 
@@ -6,12 +6,31 @@ import { EngineError, type Engine, type EngineContext } from "./types.js";
 export const SHARP_INPUTS = new Set(["jpg", "png", "webp", "gif", "avif", "tiff", "svg"]);
 export const SHARP_OUTPUTS = new Set(["jpg", "png", "webp", "gif", "avif", "tiff"]);
 
+/**
+ * libvips picks a decoder from the file's content, not its name, and ships
+ * loaders for many obscure formats (vips, matrix, csv, ppm, fits, rad, ...).
+ * Uploads are untrusted, so only the decoders for formats Anyform accepts stay
+ * enabled (blocking a parent class blocks its file/buffer/source loaders).
+ * Process-wide; applied once when this module loads.
+ */
+export const ALLOWED_LOADERS = [
+  "VipsForeignLoadJpeg",
+  "VipsForeignLoadPng",
+  "VipsForeignLoadWebp",
+  "VipsForeignLoadNsgif",
+  "VipsForeignLoadHeif",
+  "VipsForeignLoadTiff",
+  "VipsForeignLoadSvg",
+];
+sharp.block({ operation: ["VipsForeignLoad"] });
+sharp.unblock({ operation: ALLOWED_LOADERS });
+
 export function sharpSupports(fromExt: string, toExt: string): boolean {
   return SHARP_INPUTS.has(fromExt) && SHARP_OUTPUTS.has(toExt);
 }
 
 /** Build the sharp pipeline for an image → image conversion (exported for tests). */
-export function buildSharpPipeline(input: string | Buffer, fromExt: string, toExt: string, o: EngineContext["options"]): sharp.Sharp {
+export function buildSharpPipeline(input: string | Buffer, fromExt: string, toExt: string, o: EngineContext["options"]): Sharp {
   const animated = (fromExt === "gif" || fromExt === "webp") && (toExt === "gif" || toExt === "webp");
   let img = sharp(input, {
     animated,

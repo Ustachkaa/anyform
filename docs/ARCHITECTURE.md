@@ -257,6 +257,34 @@ re-delivered webhook grants nothing).
 ## 11. Security & abuse
 
 - Inputs are never executed; engines get file paths only.
+- **Untrusted files vs. engines** (each engine picks a parser from the file's
+  content, not its name, so a renamed file is the main attack):
+  - pandoc runs with `--sandbox`: it may read only the input. (Before this,
+    `![x](file:///etc/passwd)` in Markdown/HTML was embedded into html, docx,
+    odt, epub and pdf outputs.)
+  - ffmpeg reads uploads with `-protocol_whitelist file` and a demuxer
+    allowlist (`INPUT_DEMUXERS`), so playlists (HLS), concat lists and
+    network protocols are refused.
+  - ImageMagick: the input coder is always pinned by extension
+    (`INPUT_CODERS`), `apps/api/config/imagemagick/policy.xml` (loaded via
+    `MAGICK_CONFIGURE_PATH`) disables script/URL/text coders and every
+    delegate and caps memory/size/time; SVG is rasterised by sharp first.
+  - sharp/libvips: every loader is blocked except jpeg/png/webp/gif/heif/tiff/svg.
+  - LibreOffice: each job's fresh profile is seeded with macros disabled
+    (level 3, DisableMacrosExecution) and BlockUntrustedRefererLinks.
+  - Production: the worker runs on an internal Docker network with no route
+    out (`docker-compose.prod.yml`), as a non-root user with no capabilities,
+    so a file that tricks an engine into fetching URLs reaches nothing.
+- Client IP: X-Forwarded-For is believed only from `TRUST_PROXY` (default
+  loopback + private networks), so rate limits can't be dodged with a fake header.
+- CSRF: SameSite=Lax cookies, plus the API refuses POST/PATCH/DELETE whose
+  `Origin` is not the site's (webhooks exempt; they are signed).
+- Login: 10 wrong passwords per email per 15 min locks that email (in-memory,
+  single API process); unknown emails cost the same bcrypt time as wrong passwords.
+- Web pages send CSP (self + Paddle only, `frame-ancestors 'none'`),
+  X-Frame-Options, Permissions-Policy, Referrer-Policy; post-login redirects
+  are same-site paths only (`safeNextPath`). Downloads carry
+  `Content-Security-Policy: default-src 'none'; sandbox`.
 - Filenames are sanitised (`safeFilename`), storage keys are server-generated.
 - Rate limits: 100 req/min per IP globally; 20 uploads/hour per IP for guests.
 - Passwords: bcryptjs cost 12. JWT: HS256 with `JWT_SECRET`, 30 days,

@@ -60,6 +60,9 @@ function videoFilters(o: ConversionOptions, evenDims: boolean): string[] {
   return parts;
 }
 
+/** Demuxers allowed to read uploads (names as ffmpeg reports them; "mov" covers mp4/m4a/3gp, "matroska" covers webm, "ogg" covers opus/ogv). */
+export const INPUT_DEMUXERS = "mov,matroska,avi,asf,flv,mpeg,mpegvideo,mpegts,ogg,mp3,wav,flac,aac,aiff,amr,amrnb,amrwb,gif";
+
 /**
  * Pure argument builder — unit-tested. Everything that touches the command
  * line for ffmpeg is decided here.
@@ -70,6 +73,11 @@ export function buildFfmpegArgs(input: string, output: string, toExt: string, o:
 
   const start = o.trimStartSec ?? 0;
   if (start > 0) args.push("-ss", String(start));
+  // Untrusted input: read it only as a plain local file, and only with the
+  // container demuxers Anyform accepts. ffmpeg picks the demuxer from the
+  // content, not the name, so without this an upload named .mp4 that is really
+  // an HLS playlist or concat list could make ffmpeg open other local files or URLs.
+  args.push("-protocol_whitelist", "file", "-format_whitelist", INPUT_DEMUXERS);
   args.push("-i", input);
   if (o.trimEndSec !== undefined && o.trimEndSec > start) args.push("-t", String(o.trimEndSec - start));
 

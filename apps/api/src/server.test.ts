@@ -85,3 +85,44 @@ describe("error envelope", () => {
     expect(res.json().error.code).toBe("VALIDATION");
   });
 });
+
+describe("cross-site request guard", () => {
+  it("refuses state changes from another site's pages", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/auth/signup",
+      headers: { origin: "https://evil.example" },
+      payload: { email: "not-an-email", password: "short" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("FORBIDDEN");
+  });
+
+  it("lets our own origin and non-browser clients through to validation", async () => {
+    for (const headers of [{ origin: "http://localhost:3000" }, {}]) {
+      const res = await app.inject({ method: "POST", url: "/v1/auth/signup", headers, payload: { email: "x", password: "y" } });
+      expect(res.statusCode).toBe(400);
+    }
+  });
+
+  it("does not apply to reads or to signed provider webhooks", async () => {
+    expect((await app.inject({ method: "GET", url: "/v1/health", headers: { origin: "https://evil.example" } })).statusCode).toBe(200);
+    const hook = await app.inject({ method: "POST", url: "/v1/billing/webhook", headers: { origin: "https://evil.example", "content-type": "application/json" }, payload: "{}" });
+    expect(hook.statusCode).not.toBe(403);
+  });
+});
+
+describe("client IP trust", () => {
+  it("believes X-Forwarded-For only from local/private proxies", async () => {
+    const { buildApp } = await import("./server.js");
+    const probe = await buildApp({ logger: false });
+    probe.get("/__ip", async (req) => ({ ip: req.ip }));
+    await probe.ready();
+    const ip = async (remoteAddress: string) =>
+      (await probe.inject({ method: "GET", url: "/__ip", remoteAddress, headers: { "x-forwarded-for": "1.2.3.4" } })).json().ip;
+    expect(await ip("203.0.113.9")).toBe("203.0.113.9"); // public peer: header ignored
+    expect(await ip("127.0.0.1")).toBe("1.2.3.4"); // Next.js rewrite on loopback
+    expect(await ip("172.18.0.5")).toBe("1.2.3.4"); // Caddy/web on a Docker network
+    await probe.close();
+  }, 30_000);
+});

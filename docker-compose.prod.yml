@@ -3,7 +3,15 @@
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 #
 # Adds Caddy (TLS termination), stops publishing api/web/db ports to the host,
-# and runs two worker replicas.
+# runs two worker replicas, and isolates the worker.
+#
+# Network isolation: the worker feeds untrusted uploads to ffmpeg, LibreOffice,
+# ImageMagick, pandoc and calibre. It sits only on `backend`, an internal
+# network with no route out, so a booby-trapped file cannot make it fetch URLs
+# (internal services, cloud metadata) or send data anywhere. The API keeps
+# internet access for Paddle and Resend. With STORAGE_DRIVER=s3 the worker
+# needs to reach the bucket: put the bucket on `backend` (MinIO) or replace
+# `internal: true` with an egress firewall that allows only the S3 endpoint.
 
 services:
   caddy:
@@ -23,16 +31,21 @@ services:
 
   db:
     ports: !reset []
+    networks: [backend]
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
 
   api:
     ports: !reset []
+    networks: [default, backend]
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://anyform:${POSTGRES_PASSWORD}@db:5432/anyform
 
   worker:
+    networks: [backend]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     deploy:
       replicas: 2
       resources:
@@ -51,3 +64,7 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+
+networks:
+  backend:
+    internal: true

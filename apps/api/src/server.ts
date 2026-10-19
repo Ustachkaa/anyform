@@ -28,7 +28,7 @@ function defaultLogger(): FastifyServerOptions["logger"] {
 export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: opts.logger ?? defaultLogger(),
-    trustProxy: true,
+    trustProxy: config.TRUST_PROXY.split(",").map((p) => p.trim()).filter(Boolean),
     bodyLimit: 1024 * 1024,
   });
 
@@ -37,7 +37,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(cors, {
     origin: [config.WEB_ORIGIN],
     credentials: true,
-    methods: ["GET", "POST", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   });
   await app.register(cookie, { secret: config.COOKIE_SECRET });
   await app.register(jwt, {
@@ -57,6 +57,18 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
       fieldSize: 64 * 1024,
       fileSize: PLANS.business.maxFileBytes,
     },
+  });
+
+  // CSRF defence in depth (session cookies are already SameSite=Lax): a browser
+  // always sends Origin on cross-site POST/PATCH/DELETE, so refuse state changes
+  // whose Origin isn't ours. Requests without Origin (server-to-server, curl) and
+  // provider webhooks (signed) pass.
+  const allowedOrigins = new Set([new URL(config.WEB_ORIGIN).origin, new URL(config.API_PUBLIC_URL).origin]);
+  app.addHook("onRequest", async (request) => {
+    if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") return;
+    if (request.url.startsWith("/v1/billing/webhook")) return;
+    const origin = request.headers.origin;
+    if (origin && !allowedOrigins.has(origin)) throw errors.forbidden("Cross-site request refused.");
   });
 
   app.addHook("onSend", async (_request, reply) => {

@@ -43,6 +43,8 @@ export interface PurchaseGrant {
 export async function grantPurchase(g: PurchaseGrant): Promise<boolean> {
   const product = ONE_TIME_PRODUCTS[g.product];
   const now = g.now ?? new Date();
+  // Re-deliveries are normal: answer them without provoking (and logging) a unique-key error.
+  if (await prisma.purchase.findUnique({ where: { providerTransactionId: g.providerTransactionId }, select: { id: true } })) return false;
   try {
     await prisma.$transaction(async (tx) => {
       const user = await tx.user.findUniqueOrThrow({ where: { id: g.userId }, select: { passUntil: true } });

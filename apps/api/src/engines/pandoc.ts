@@ -44,7 +44,11 @@ export function buildPandocArgs(input: string, output: string, fromExt: string, 
   const reader = PANDOC_READERS[fromExt];
   const writer = PANDOC_WRITERS[toExt];
   if (!reader || !writer) throw new EngineError("pandoc", `pandoc cannot convert ${fromExt} → ${toExt}`);
-  const args = ["-f", reader, "-t", writer, "--standalone", "--wrap=none"];
+  // --sandbox: pandoc may read only the input file (and its own data files).
+  // Without it, `![x](file:///etc/passwd)` or a local path in Markdown/HTML was
+  // embedded into the output (html/docx/odt/epub, and pdf via the html chain),
+  // letting an upload exfiltrate any file the worker can read.
+  const args = ["--sandbox", "-f", reader, "-t", writer, "--standalone", "--wrap=none"];
   if (toExt === "epub" || toExt === "html" || toExt === "fb2") args.push("--metadata=title:Converted document");
   if (toExt === "html") args.push("--embed-resources");
   args.push("-o", output, input);

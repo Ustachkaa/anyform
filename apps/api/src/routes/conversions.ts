@@ -227,7 +227,11 @@ export const conversionRoutes: FastifyPluginAsync = async (app) => {
       .header("Content-Length", String(info.size))
       .header("Content-Disposition", contentDisposition(filename))
       .header("Cache-Control", "private, no-store")
-      .header("X-Content-Type-Options", "nosniff");
+      .header("X-Content-Type-Options", "nosniff")
+      // Outputs are user-controlled content (html, svg-bearing pdf, ...): even if a
+      // browser rendered one instead of downloading it, it gets no scripts and no origin.
+      .header("Content-Security-Policy", "default-src 'none'; sandbox")
+      .header("Cross-Origin-Resource-Policy", "same-origin");
     return reply.send(stream);
   });
 

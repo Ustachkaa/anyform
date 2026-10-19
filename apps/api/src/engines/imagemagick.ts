@@ -1,3 +1,6 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import sharp from "sharp";
 import type { EngineInfo } from "@anyform/shared";
 import { config } from "../config.js";
 import { findBinary, runOk } from "./exec.js";
@@ -22,11 +25,32 @@ export const magickCandidates = (): Array<string | undefined> => [
  */
 export const SINGLE_FRAME_TARGETS = new Set(["jpg", "png", "bmp"]);
 
+/**
+ * The coder each upload is read with. ImageMagick otherwise picks the coder
+ * from the file's content, so a file named .bmp that is really MVG, MSL or SVG
+ * would run as a drawing script. Pinning it (plus the policy) closes that door.
+ * SVG is not here: it is rasterised by sharp first (see convert()).
+ */
+export const INPUT_CODERS: Record<string, string> = {
+  jpg: "JPEG",
+  png: "PNG",
+  webp: "WEBP",
+  gif: "GIF",
+  avif: "AVIF",
+  tiff: "TIFF",
+  bmp: "BMP",
+  heic: "HEIC",
+  ico: "ICO",
+};
+
+/** Directory holding policy.xml (apps/api/config/imagemagick, from src/ or dist/). */
+export const MAGICK_POLICY_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../config/imagemagick");
+
 export function buildMagickArgs(input: string, output: string, fromExt: string, toExt: string, o: EngineContext["options"]): string[] {
-  // Explicit input format prefix avoids ImageMagick guessing from magic bytes
-  // for containers it may misdetect (heic/heif share a brand list).
+  const coder = INPUT_CODERS[fromExt];
+  if (!coder) throw new EngineError("imagemagick", `ImageMagick does not read .${fromExt} uploads`);
   const frame = SINGLE_FRAME_TARGETS.has(toExt) ? `${input}[0]` : input;
-  const inSpec = fromExt === "heic" ? `HEIC:${frame}` : frame;
+  const inSpec = `${coder}:${frame}`;
   const args: string[] = [inSpec, "-auto-orient"];
   if (o.width || o.height) args.push("-resize", `${o.width ?? ""}x${o.height ?? ""}>`);
   if (toExt === "jpg") {
@@ -51,10 +75,27 @@ export const imagemagickEngine: Engine = {
   async convert(ctx: EngineContext): Promise<void> {
     const found = await findBinary(magickCandidates(), ["-version"]);
     if (!found) throw new EngineError("imagemagick", "ImageMagick is not installed");
-    const args = buildMagickArgs(ctx.inputPath, ctx.outputPath, ctx.fromExt, ctx.toExt, ctx.options);
+    let input = ctx.inputPath;
+    let fromExt = ctx.fromExt;
+    if (fromExt === "svg") {
+      // ImageMagick's SVG renderers follow external references; sharp/librsvg
+      // only resolves files beside the SVG (the empty job dir). Rasterise first.
+      input = path.join(ctx.tmpDir, "rasterised.png");
+      try {
+        await sharp(ctx.inputPath, { density: 144 }).png().toFile(input);
+      } catch (err) {
+        throw new EngineError("imagemagick", `Could not read the SVG: ${(err as Error).message}`);
+      }
+      fromExt = "png";
+    }
+    const args = buildMagickArgs(input, ctx.outputPath, fromExt, ctx.toExt, ctx.options);
     ctx.log(`${found.path} ${args.join(" ")}`);
     try {
-      await runOk(found.path, args, { timeoutMs: ctx.timeoutMs, cwd: ctx.tmpDir });
+      await runOk(found.path, args, {
+        timeoutMs: ctx.timeoutMs,
+        cwd: ctx.tmpDir,
+        env: { ...process.env, MAGICK_CONFIGURE_PATH: MAGICK_POLICY_DIR },
+      });
     } catch (err) {
       throw new EngineError("imagemagick", `ImageMagick failed: ${(err as Error).message}`);
     }

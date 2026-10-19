@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { isOneTimeProductId, isPlanId, loginSchema, ONE_TIME_PRODUCTS, signupSchema, type BillingInterval } from "@anyform/shared";
 import { ApiClientError, checkout, checkoutProduct, explainError, login, signup } from "@/lib/api";
+import { safeNextPath } from "@/lib/site";
 
 interface Props {
   mode: "login" | "signup";
@@ -21,7 +22,7 @@ export function AuthForm({ mode }: Props) {
   const productParam = params.get("product");
   const product = !plan && isOneTimeProductId(productParam) ? productParam : null;
   const carry = plan ? `?plan=${plan}&interval=${interval}` : product ? `?product=${product}` : "";
-  const next = params.get("next") ?? "/dashboard";
+  const next = params.get("next");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -64,13 +65,15 @@ export function AuthForm({ mode }: Props) {
           // Billing not configured or failed: land on the dashboard anyway.
         }
       }
-      router.push(next.startsWith("/") ? next : "/dashboard");
+      router.push(safeNextPath(next));
       router.refresh();
     } catch (err) {
       if (err instanceof ApiClientError) {
         if (err.code === "CONFLICT") setFormError("An account with that email already exists. Log in instead.");
         else if (err.code === "UNAUTHORIZED" || err.status === 401) setFormError("Wrong email or password.");
         else if (err.code === "VALIDATION") setFormError(err.message);
+        // Account lockout or auth rate limit: the server's message says how long to wait.
+        else if (err.code === "RATE_LIMITED" && err.status === 429 && err.message) setFormError(err.message);
         else setFormError(explainError(err));
       } else setFormError("Something went wrong. Please try again.");
       setBusy(false);

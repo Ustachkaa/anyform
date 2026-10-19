@@ -35,6 +35,13 @@ const schema = z.object({
   API_HOST: z.string().default("0.0.0.0"),
   API_PUBLIC_URL: z.string().default("http://localhost:4000"),
   WEB_ORIGIN: z.string().default("http://localhost:3000"),
+  /**
+   * Proxies whose X-Forwarded-For is believed (proxy-addr syntax). The client IP
+   * drives rate limits and guest throttles, so trusting every sender let anyone
+   * fake their IP. Default: loopback and private networks (Next.js rewrite,
+   * Caddy and Docker networks), never the public internet.
+   */
+  TRUST_PROXY: z.string().default("loopback,linklocal,uniquelocal"),
   JWT_SECRET: z.string().default("dev-only-jwt-secret-change-me-please"),
   COOKIE_SECRET: z.string().default("dev-only-cookie-secret-change-me-please"),
   COOKIE_DOMAIN: optStr,

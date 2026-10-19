@@ -41,6 +41,8 @@ COPY --from=build /app/packages/shared/dist ./packages/shared/dist
 COPY --from=build /app/apps/api/package.json ./apps/api/package.json
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/api/prisma ./apps/api/prisma
+# Engine security config (ImageMagick policy.xml)
+COPY --from=build /app/apps/api/config ./apps/api/config
 RUN mkdir -p /data && chown -R node:node /data /app
 USER node
 EXPOSE 4000

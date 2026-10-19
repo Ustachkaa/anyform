@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ImageMagick security policy for Anyform workers (loaded via MAGICK_CONFIGURE_PATH,
+  set by apps/api/src/engines/imagemagick.ts). Uploads are untrusted: only the
+  raster coders Anyform needs stay usable, every external delegate is off, and
+  resources are capped so a decompression bomb fails instead of exhausting the box.
+-->
+<policymap>
+  <policy domain="resource" name="memory" value="512MiB"/>
+  <policy domain="resource" name="map" value="1GiB"/>
+  <policy domain="resource" name="width" value="16KP"/>
+  <policy domain="resource" name="height" value="16KP"/>
+  <policy domain="resource" name="area" value="128MP"/>
+  <policy domain="resource" name="disk" value="2GiB"/>
+  <policy domain="resource" name="file" value="64"/>
+  <policy domain="resource" name="thread" value="2"/>
+  <policy domain="resource" name="time" value="300"/>
+  <!-- No shelling out to ghostscript, curl, ffmpeg, inkscape, ... -->
+  <policy domain="delegate" rights="none" pattern="*"/>
+  <!-- Coders that run drawing scripts, read arbitrary files/URLs or render text from files. -->
+  <policy domain="coder" rights="none" pattern="{MVG,MSL,MSVG,SVG,SVGZ,RSVG,TEXT,TXT,LABEL,CAPTION,PANGO,URL,HTTP,HTTPS,FTP,EPHEMERAL,SHOW,WIN,X,VID,PLT,PS,PS2,PS3,EPS,EPI,EPSF,EPSI,EPT,XPS,PCL,MAGICK,INLINE,DATA,FONT,TTF,OTF,PWP,SCR,STEGANO}"/>
+  <!-- PDF only as an output (image → pdf); reading PDFs is poppler's job. -->
+  <policy domain="coder" rights="write" pattern="PDF"/>
+  <!-- "@file" reads a list of filenames from a file. -->
+  <policy domain="path" rights="none" pattern="@*"/>
+</policymap>

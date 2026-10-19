@@ -1,4 +1,4 @@
-import { mkdir, readdir, rename } from "node:fs/promises";
+import { mkdir, readdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { EngineInfo } from "@anyform/shared";
@@ -28,6 +28,21 @@ export const sofficeCandidates = (): Array<string | undefined> => [
     ? ["C:\\Program Files\\LibreOffice\\program\\soffice.com", "C:\\Program Files (x86)\\LibreOffice\\program\\soffice.com"]
     : ["/usr/bin/soffice", "/usr/lib/libreoffice/program/soffice", "/Applications/LibreOffice.app/Contents/MacOS/soffice"]),
 ];
+
+/**
+ * Settings written into each job's fresh profile before LibreOffice starts.
+ * Uploads are untrusted: macros never run (not even signed ones), and a
+ * document can't pull in linked content (images, OLE, frames) from outside
+ * itself, so it can't make the converter read local files or fetch URLs.
+ */
+export const HARDENED_REGISTRY = `<?xml version="1.0" encoding="UTF-8"?>
+<oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="MacroSecurityLevel" oor:op="fuse"><value>3</value></prop></item>
+<item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="DisableMacrosExecution" oor:op="fuse"><value>true</value></prop></item>
+<item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="BlockUntrustedRefererLinks" oor:op="fuse"><value>true</value></prop></item>
+<item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="UseOpenCL" oor:op="fuse"><value>false</value></prop></item>
+</oor:items>
+`;
 
 /** A cold LibreOffice start (first run, fresh profile, busy machine) easily exceeds the default 15 s. */
 const SOFFICE_PROBE_TIMEOUT_MS = 60_000;
@@ -81,7 +96,8 @@ export const libreofficeEngine: Engine = {
     const outDir = path.join(ctx.tmpDir, "lo-out");
     const profileDir = path.join(ctx.tmpDir, "lo-profile");
     await mkdir(outDir, { recursive: true });
-    await mkdir(profileDir, { recursive: true });
+    await mkdir(path.join(profileDir, "user"), { recursive: true });
+    await writeFile(path.join(profileDir, "user", "registrymodifications.xcu"), HARDENED_REGISTRY, "utf8");
 
     const args = buildSofficeArgs(ctx.inputPath, outDir, profileDir, ctx.fromExt, ctx.toExt);
     ctx.log(`soffice ${args.join(" ")}`);
