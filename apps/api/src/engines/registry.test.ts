@@ -49,6 +49,15 @@ describe("engine registry resolution order", () => {
     expect(names("mobi", "html")).toEqual(["calibre+pandoc"]);
   });
 
+  it("never hands raw md/txt/html to calibre, or raw html to libreoffice", () => {
+    expect(names("md", "mobi")).toEqual(["pandoc+calibre"]);
+    expect(names("txt", "azw3")).toEqual(["pandoc+calibre"]);
+    expect(names("html", "mobi")).toEqual(["pandoc+calibre"]);
+    expect(names("md", "epub")).toEqual(["pandoc"]);
+    expect(names("html", "pdf")).toEqual(["pandoc+libreoffice"]);
+    expect(names("html", "docx")).toEqual(["pandoc"]);
+  });
+
   it("returns nothing for unsupported pairs", () => {
     expect(names("mp3", "mp4")).toEqual([]);
     expect(names("png", "docx")).toEqual([]);

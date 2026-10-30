@@ -1,4 +1,4 @@
-import { mkdir, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, open, readdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { EngineInfo } from "@anyform/shared";
@@ -67,6 +67,44 @@ export const LO_EXPORT_FILTERS: Record<string, string> = {
 
 export const LO_INPUTS = new Set(["pdf", "docx", "doc", "odt", "rtf", "txt", "html", "xlsx", "xls", "ods", "csv", "pptx", "ppt", "odp"]);
 
+const ZIP = [0x50, 0x4b, 0x03, 0x04];
+const OLE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+/**
+ * Leading bytes each binary input must start with. LibreOffice picks its
+ * import filter from the content, not the name, so without this an HTML page
+ * renamed to .docx would reach its HTML import and skip pandoc's filter.
+ */
+export const LO_MAGIC: Record<string, number[]> = {
+  docx: ZIP, xlsx: ZIP, pptx: ZIP, odt: ZIP, ods: ZIP, odp: ZIP,
+  doc: OLE, xls: OLE, ppt: OLE,
+  rtf: [...Buffer.from("{\\rtf")],
+  pdf: [...Buffer.from("%PDF-")],
+};
+/** Text inputs get a pinned import filter instead, for the same reason. */
+export const LO_TEXT_INFILTERS: Record<string, string> = {
+  txt: "Text (encoded):UTF8",
+  csv: "Text - txt - csv (StarCalc):44,34,76,1",
+};
+
+export function hasMagic(head: Uint8Array, fromExt: string): boolean {
+  const magic = LO_MAGIC[fromExt];
+  if (!magic) return true;
+  // A UTF-8 BOM is tolerated before the text signatures (rtf).
+  const start = fromExt === "rtf" && head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf ? 3 : 0;
+  return magic.every((b, i) => head[start + i] === b);
+}
+
+async function readHead(file: string, n = 16): Promise<Uint8Array> {
+  const fh = await open(file, "r");
+  try {
+    const buf = Buffer.alloc(n);
+    const { bytesRead } = await fh.read(buf, 0, n, 0);
+    return buf.subarray(0, bytesRead);
+  } finally {
+    await fh.close();
+  }
+}
+
 export function buildSofficeArgs(input: string, outDir: string, profileDir: string, fromExt: string, toExt: string): string[] {
   const filter = LO_EXPORT_FILTERS[toExt];
   if (!filter) throw new EngineError("libreoffice", `LibreOffice cannot write ${toExt}`);
@@ -79,6 +117,9 @@ export function buildSofficeArgs(input: string, outDir: string, profileDir: stri
     "--nodefault",
   ];
   if (fromExt === "pdf") args.push("--infilter=writer_pdf_import");
+  const textFilter = LO_TEXT_INFILTERS[fromExt];
+  if (textFilter) args.push(`--infilter=${textFilter}`);
+  // html only ever arrives from pandoc (filtered); see the registry.
   args.push("--convert-to", filter, "--outdir", outDir, input);
   return args;
 }
@@ -92,6 +133,9 @@ export const libreofficeEngine: Engine = {
   async convert(ctx: EngineContext): Promise<void> {
     const found = await findBinary(sofficeCandidates(), ["--version"], SOFFICE_PROBE_TIMEOUT_MS);
     if (!found) throw new EngineError("libreoffice", "LibreOffice is not installed");
+    if (!hasMagic(await readHead(ctx.inputPath), ctx.fromExt)) {
+      throw new EngineError("libreoffice", `This file is not really a .${ctx.fromExt} document.`);
+    }
 
     const outDir = path.join(ctx.tmpDir, "lo-out");
     const profileDir = path.join(ctx.tmpDir, "lo-profile");

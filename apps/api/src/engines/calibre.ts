@@ -12,7 +12,12 @@ export const calibreCandidates = (): Array<string | undefined> => [
     : ["/usr/bin/ebook-convert", "/Applications/calibre.app/Contents/MacOS/ebook-convert"]),
 ];
 
-export const CALIBRE_INPUTS = new Set(["epub", "mobi", "azw3", "fb2", "docx", "odt", "rtf", "txt", "html", "pdf", "md"]);
+/**
+ * No md, txt or html: calibre turns them into HTML and follows whatever they
+ * link to on disk (its text input even resets --max-levels to the default), so
+ * the registry sends them through pandoc's filtered EPUB first.
+ */
+export const CALIBRE_INPUTS = new Set(["epub", "mobi", "azw3", "fb2", "docx", "odt", "rtf", "pdf"]);
 export const CALIBRE_OUTPUTS = new Set(["epub", "mobi", "azw3", "fb2", "pdf", "docx", "txt", "rtf"]);
 
 export function calibreSupports(fromExt: string, toExt: string): boolean {
@@ -20,11 +25,8 @@ export function calibreSupports(fromExt: string, toExt: string): boolean {
 }
 
 export function buildCalibreArgs(input: string, output: string, fromExt: string, toExt: string): string[] {
+  if (!CALIBRE_INPUTS.has(fromExt)) throw new EngineError("calibre", `calibre is not given ${fromExt} input`);
   const args = [input, output];
-  // Untrusted HTML: calibre would otherwise follow links to other local files
-  // (e.g. file:///proc/self/environ) and pack them into the book.
-  if (fromExt === "html") args.push("--max-levels", "0");
-  if (fromExt === "md" || fromExt === "txt") args.push("--formatting-type", fromExt === "md" ? "markdown" : "auto");
   if (toExt === "pdf") args.push("--paper-size", "a4", "--pdf-page-numbers");
   if (toExt === "mobi") args.push("--mobi-file-type", "both");
   return args;
@@ -39,14 +41,7 @@ export const calibreEngine: Engine = {
   async convert(ctx: EngineContext): Promise<void> {
     const found = await findBinary(calibreCandidates(), ["--version"]);
     if (!found) throw new EngineError("calibre", "calibre (ebook-convert) is not installed");
-    // calibre reads markdown as .txt with markdown formatting
-    let input = ctx.inputPath;
-    if (ctx.fromExt === "md") {
-      const { copyFile } = await import("node:fs/promises");
-      input = `${ctx.inputPath}.txt`;
-      await copyFile(ctx.inputPath, input);
-    }
-    const args = buildCalibreArgs(input, ctx.outputPath, ctx.fromExt, ctx.toExt);
+    const args = buildCalibreArgs(ctx.inputPath, ctx.outputPath, ctx.fromExt, ctx.toExt);
     ctx.log(`ebook-convert ${args.join(" ")}`);
     ctx.onProgress(10);
     try {

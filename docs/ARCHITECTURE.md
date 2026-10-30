@@ -262,7 +262,17 @@ re-delivered webhook grants nothing).
   content, not its name, so a renamed file is the main attack):
   - pandoc runs with `--sandbox`: it may read only the input. (Before this,
     `![x](file:///etc/passwd)` in Markdown/HTML was embedded into html, docx,
-    odt, epub and pdf outputs.)
+    odt, epub and pdf outputs.) Sandboxed pandoc still leaves the reference
+    in place for the next tool, so hand-written inputs (md, txt, html) also
+    pass a Lua filter (`UNTRUSTED_FILTER`) that drops raw HTML/TeX, images that
+    aren't inline data, links to anything but http(s)/mailto/anchors, style and
+    source attributes, and all metadata but a plain title.
+  - calibre never gets md, txt or html (it follows their links on disk, and its
+    text input resets `--max-levels`); they go pandoc (filtered) → epub first.
+    LibreOffice never gets uploaded html, only pandoc's filtered copy.
+  - LibreOffice picks its importer from content, so binary inputs must start
+    with their real signature (`LO_MAGIC`: zip, OLE, `{\rtf`, `%PDF-`) and
+    txt/csv get a pinned text import filter; an HTML page renamed `.docx` is refused.
   - ffmpeg reads uploads with `-protocol_whitelist file` and a demuxer
     allowlist (`INPUT_DEMUXERS`), so playlists (HLS), concat lists and
     network protocols are refused.

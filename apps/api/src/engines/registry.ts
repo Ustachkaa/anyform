@@ -24,12 +24,14 @@ import { EngineError, type Engine, type EngineContext } from "./types.js";
  *   pdf → md                               poppler→html + pandoc, then libreoffice→docx + pandoc
  *   pdf → docx/odt/rtf/doc                 libreoffice
  *   md → pdf                               pandoc→html, libreoffice→pdf
+ *   html → pdf/doc                         pandoc→html (filtered), libreoffice
+ *   html → other documents                 pandoc
  *   md ↔ text formats                      pandoc
  *   document → pdf                         libreoffice
  *   document ↔ document                    libreoffice, then pandoc
  *   presentation / spreadsheet             libreoffice
  *   document → epub                        pandoc, then calibre
- *   document → mobi/azw3/fb2               calibre, then pandoc(→epub)+calibre
+ *   document → mobi/azw3/fb2               calibre, then pandoc(→epub)+calibre (md/txt/html: pandoc first only)
  *   ebook ↔ ebook                          calibre (pandoc for epub ↔ fb2)
  *   ebook → pdf/docx/txt                   calibre
  *   ebook → html                           pandoc (epub/fb2) or calibre(→epub)+pandoc
@@ -111,6 +113,12 @@ export function candidatesFor(fromExt: string, toExt: string): Engine[] {
     if (f === "md") {
       if (t === "pdf") return [chain(pandocEngine, "html", libreofficeEngine)];
       if (t === "doc") return [chain(pandocEngine, "docx", libreofficeEngine)];
+      return [pandocEngine];
+    }
+    if (f === "html") {
+      // LibreOffice loads whatever a page embeds (iframes, images, styles,
+      // local or remote), so it only ever sees pandoc's filtered copy.
+      if (t === "pdf" || t === "doc") return [chain(pandocEngine, "html", libreofficeEngine)];
       return [pandocEngine];
     }
     if (t === "md") {

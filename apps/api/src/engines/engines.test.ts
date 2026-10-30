@@ -4,8 +4,8 @@ import path from "node:path";
 import { buildCalibreArgs } from "./calibre.js";
 import { buildFfmpegArgs, INPUT_DEMUXERS, MAX_VIDEO_DIM } from "./ffmpeg.js";
 import { buildMagickArgs, MAGICK_POLICY_DIR } from "./imagemagick.js";
-import { buildPandocArgs } from "./pandoc.js";
-import { windowsConsoleLauncher } from "./libreoffice.js";
+import { buildPandocArgs, UNTRUSTED_FILTER } from "./pandoc.js";
+import { buildSofficeArgs, hasMagic, windowsConsoleLauncher } from "./libreoffice.js";
 import { buildPdftohtmlArgs } from "./poppler.js";
 import { memo } from "./types.js";
 
@@ -57,15 +57,47 @@ describe("ffmpeg input hardening", () => {
 });
 
 describe("calibre input hardening", () => {
-  it("does not follow links out of uploaded HTML", () => {
-    const args = buildCalibreArgs("/t/in.html", "/t/o.mobi", "html", "mobi");
-    expect(args[args.indexOf("--max-levels") + 1]).toBe("0");
+  it("refuses hand-written text it would follow links out of", () => {
+    for (const ext of ["md", "txt", "html"]) expect(() => buildCalibreArgs(`/t/in.${ext}`, "/t/o.mobi", ext, "mobi")).toThrow();
+    expect(buildCalibreArgs("/t/in.epub", "/t/o.mobi", "epub", "mobi").slice(0, 2)).toEqual(["/t/in.epub", "/t/o.mobi"]);
   });
 });
 
 describe("pandoc sandbox", () => {
   it("runs every conversion with --sandbox", () => {
-    expect(buildPandocArgs("/t/in.md", "/t/o.html", "md", "html")[0]).toBe("--sandbox");
+    expect(buildPandocArgs("/t/in.md", "/t/o.html", "md", "html", "/t/f.lua")[0]).toBe("--sandbox");
+  });
+
+  it("filters untrusted text inputs and insists on the filter", () => {
+    for (const ext of ["md", "txt", "html"]) {
+      const args = buildPandocArgs(`/t/in.${ext}`, "/t/o.epub", ext, "epub", "/t/f.lua");
+      expect(args[args.indexOf("--lua-filter") + 1]).toBe("/t/f.lua");
+      expect(() => buildPandocArgs(`/t/in.${ext}`, "/t/o.epub", ext, "epub")).toThrow();
+    }
+    expect(buildPandocArgs("/t/in.docx", "/t/o.md", "docx", "md")).not.toContain("--lua-filter");
+  });
+
+  it("strips raw HTML, local images and links, and metadata in the filter", () => {
+    expect(UNTRUSTED_FILTER).toContain("RawBlock = function() return {} end");
+    expect(UNTRUSTED_FILTER).toContain('el.src:match("^data:image/")');
+    expect(UNTRUSTED_FILTER).toContain("Meta = function(m)");
+  });
+});
+
+describe("libreoffice input checks", () => {
+  it("refuses a page disguised as an office file", () => {
+    const html = Buffer.from("<html><iframe src=file:///etc/passwd>");
+    for (const ext of ["docx", "doc", "odt", "rtf", "xlsx", "pdf"]) expect(hasMagic(html, ext)).toBe(false);
+    expect(hasMagic(Buffer.from([0x50, 0x4b, 0x03, 0x04, 0]), "docx")).toBe(true);
+    expect(hasMagic(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]), "xls")).toBe(true);
+    expect(hasMagic(Buffer.from("﻿{\\rtf1\\ansi"), "rtf")).toBe(true);
+    expect(hasMagic(Buffer.from("%PDF-1.7"), "pdf")).toBe(true);
+  });
+
+  it("pins the import filter for plain text so it isn't sniffed as HTML", () => {
+    expect(buildSofficeArgs("/t/in.txt", "/o", "/p", "txt", "pdf")).toContain("--infilter=Text (encoded):UTF8");
+    expect(buildSofficeArgs("/t/in.csv", "/o", "/p", "csv", "xlsx").some((a) => a.startsWith("--infilter=Text - txt - csv"))).toBe(true);
+    expect(buildSofficeArgs("/t/in.docx", "/o", "/p", "docx", "pdf").some((a) => a.startsWith("--infilter"))).toBe(false);
   });
 });
 
