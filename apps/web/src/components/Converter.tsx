@@ -40,10 +40,18 @@ interface Props {
 }
 
 const POLL_MS = 1500;
+/** Give up after this many failed polls in a row (~30 s of no answer). */
+const MAX_POLL_ERRORS = 20;
+/** Stop watching after this long; the job may still finish and appear in the dashboard. */
+const MAX_WATCH_MS = 60 * 60_000;
 
 export function Converter({ initialFrom, initialTo, className = "" }: Props) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  const uploadAbort = useRef<AbortController | null>(null);
+
+  // Leaving the page mid-upload cancels it, so the visitor isn't charged for a file they abandoned.
+  useEffect(() => () => uploadAbort.current?.abort(), []);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [target, setTarget] = useState<string | null>(initialTo ?? null);
   const [dragging, setDragging] = useState(false);
@@ -122,8 +130,12 @@ export function Converter({ initialFrom, initialTo, className = "" }: Props) {
     setNotice(null);
     setPhase({ kind: "uploading", file, from, to, percent: 0 });
     try {
-      const res = await createConversion(file, to.ext, (percent) =>
-        setPhase((p) => (p.kind === "uploading" ? { ...p, percent } : p)),
+      uploadAbort.current = new AbortController();
+      const res = await createConversion(
+        file,
+        to.ext,
+        (percent) => setPhase((p) => (p.kind === "uploading" ? { ...p, percent } : p)),
+        uploadAbort.current.signal,
       );
       setUsage(res.usage);
       setPhase({ kind: "working", file, from, to, job: res.conversion });
@@ -142,10 +154,19 @@ export function Converter({ initialFrom, initialTo, className = "" }: Props) {
     if (phase.kind !== "working") return;
     const id = phase.job.id;
     let alive = true;
+    let errorsInARow = 0;
+    const started = Date.now();
+    const stop = (message: string) =>
+      setPhase((p) => (p.kind === "working" && p.job.id === id ? { kind: "failed", file: p.file, from: p.from, to: p.to, job: p.job, message } : p));
     const tick = async () => {
+      if (Date.now() - started > MAX_WATCH_MS) {
+        stop("This is taking much longer than usual. If it finishes, it will be in your dashboard.");
+        return;
+      }
       try {
         const job = await getConversion(id);
         if (!alive) return;
+        errorsInARow = 0;
         setPhase((p) => {
           if (p.kind !== "working" || p.job.id !== id) return p;
           if (job.status === "done") return { kind: "done", file: p.file, from: p.from, to: p.to, job };
@@ -160,8 +181,16 @@ export function Converter({ initialFrom, initialTo, className = "" }: Props) {
             };
           return { ...p, job };
         });
-      } catch {
-        // transient network blip: keep polling
+      } catch (e) {
+        if (!alive) return;
+        if (e instanceof ApiClientError && e.status === 404) {
+          stop("This conversion no longer exists: it expired or was deleted.");
+          return;
+        }
+        // Transient network blips are normal; a long run of them is not.
+        if (++errorsInARow >= MAX_POLL_ERRORS) {
+          stop("We lost touch with the server. Your file may still finish; check your dashboard in a minute.");
+        }
       }
     };
     const t = setInterval(tick, POLL_MS);

@@ -89,16 +89,26 @@ export async function getMe(): Promise<UserDTO | null> {
   }
 }
 
+/** Fired after anything that signs the visitor in or out, so the header re-checks at once. */
+export const AUTH_CHANGED_EVENT = "anyform:auth-changed";
+
+function authChanged<T>(p: Promise<T>): Promise<T> {
+  return p.then((v) => {
+    if (typeof window !== "undefined") window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
+    return v;
+  });
+}
+
 export function signup(input: SignupInput): Promise<AuthResponse> {
-  return request<AuthResponse>("/auth/signup", { method: "POST", body: JSON.stringify(input) });
+  return authChanged(request<AuthResponse>("/auth/signup", { method: "POST", body: JSON.stringify(input) }));
 }
 
 export function login(input: LoginInput): Promise<AuthResponse> {
-  return request<AuthResponse>("/auth/login", { method: "POST", body: JSON.stringify(input) });
+  return authChanged(request<AuthResponse>("/auth/login", { method: "POST", body: JSON.stringify(input) }));
 }
 
 export function logout(): Promise<void> {
-  return request<void>("/auth/logout", { method: "POST" });
+  return authChanged(request<void>("/auth/logout", { method: "POST" }));
 }
 
 export function forgotPassword(input: ForgotPasswordInput): Promise<{ ok: true }> {
@@ -106,7 +116,7 @@ export function forgotPassword(input: ForgotPasswordInput): Promise<{ ok: true }
 }
 
 export function resetPassword(input: ResetPasswordInput): Promise<AuthResponse> {
-  return request<AuthResponse>("/auth/reset", { method: "POST", body: JSON.stringify(input) });
+  return authChanged(request<AuthResponse>("/auth/reset", { method: "POST", body: JSON.stringify(input) }));
 }
 
 // ─── Account ───────────────────────────────────────────────────────────────
@@ -120,7 +130,7 @@ export function changePassword(input: ChangePasswordInput): Promise<AuthResponse
 }
 
 export function deleteAccount(input: DeleteAccountInput): Promise<void> {
-  return request<void>("/account", { method: "DELETE", body: JSON.stringify(input) });
+  return authChanged(request<void>("/account", { method: "DELETE", body: JSON.stringify(input) }));
 }
 
 // ─── Usage ─────────────────────────────────────────────────────────────────
@@ -139,9 +149,12 @@ export function createConversion(
   file: File,
   target: string,
   onProgress?: (percent: number) => void,
+  signal?: AbortSignal,
 ): Promise<CreateConversionResponse> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    if (signal?.aborted) return reject(new ApiClientError("NETWORK", "Upload cancelled.", 0));
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
     xhr.open("POST", "/api/conversions");
     xhr.setRequestHeader("Accept", "application/json");
     xhr.responseType = "text";

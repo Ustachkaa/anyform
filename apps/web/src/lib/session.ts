@@ -16,25 +16,29 @@ async function cookieHeader(): Promise<string> {
     .join("; ");
 }
 
-async function apiGet<T>(path: string): Promise<T | null> {
+/** null for 401 (not signed in); throws when the API is down or erroring. */
+async function apiGetStrict<T>(path: string): Promise<T | null> {
   const cookie = await cookieHeader();
-  try {
-    const res = await fetch(`${API_INTERNAL_URL}/v1${path}`, {
-      headers: { Accept: "application/json", ...(cookie ? { cookie } : {}) },
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
-  } catch {
-    return null;
-  }
+  const res = await fetch(`${API_INTERNAL_URL}/v1${path}`, {
+    headers: { Accept: "application/json", ...(cookie ? { cookie } : {}) },
+    cache: "no-store",
+  });
+  if (res.status === 401) return null;
+  if (!res.ok) throw new Error(`API ${path} answered ${res.status}`);
+  return (await res.json()) as T;
 }
 
+/**
+ * The signed-in user, or null when there is no valid session. An API outage
+ * throws (to the error page) instead: treating it as "logged out" bounced
+ * signed-in people to /login whenever the API hiccuped.
+ */
 export async function getSessionUser(): Promise<UserDTO | null> {
-  const r = await apiGet<AuthResponse>("/auth/me");
+  const r = await apiGetStrict<AuthResponse>("/auth/me");
   return r?.user ?? null;
 }
 
+/** Usage for the meter; null on any failure, since the page renders fine without it. */
 export async function getServerUsage(): Promise<UsageDTO | null> {
-  return apiGet<UsageDTO>("/usage");
+  return apiGetStrict<UsageDTO>("/usage").catch(() => null);
 }
