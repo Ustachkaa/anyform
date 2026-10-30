@@ -1,11 +1,14 @@
 /**
  * Per-account login throttle. The route's IP rate limit stops one client
- * hammering; this stops many IPs guessing one account's password. After
- * MAX_FAILURES wrong passwords for an email within WINDOW_MS, further logins
- * for that email are refused until the window passes. In-memory: one API
+ * hammering; this stops many IPs guessing one account's password. Two tiers:
+ * MAX_FAILURES wrong passwords for an email from one IP locks that pair only,
+ * so a single client cannot lock a victim out of their own account; and
+ * MAX_ACCOUNT_FAILURES from any IPs locks the email outright (a spray). Both
+ * windows are WINDOW_MS. In-memory: one API
  * process (single-host deploy); a multi-instance deploy should move it to Postgres.
  */
 export const MAX_FAILURES = 10;
+export const MAX_ACCOUNT_FAILURES = 100;
 export const WINDOW_MS = 15 * 60_000;
 const MAX_TRACKED = 50_000;
 
@@ -18,17 +21,25 @@ function recent(email: string, now: number): number[] {
   return list;
 }
 
-/** Seconds until this email may try again, or 0 if it isn't locked. */
-export function lockedForSeconds(email: string, now = Date.now()): number {
-  const list = recent(email, now);
-  if (list.length < MAX_FAILURES) return 0;
-  return Math.ceil((list[list.length - MAX_FAILURES]! + WINDOW_MS - now) / 1000);
+const pairKey = (email: string, ipHash: string) => `${email}|${ipHash}`;
+
+function waitFor(key: string, max: number, now: number): number {
+  const list = recent(key, now);
+  if (list.length < max) return 0;
+  return Math.ceil((list[list.length - max]! + WINDOW_MS - now) / 1000);
 }
 
-export function recordFailure(email: string, now = Date.now()): void {
-  const list = recent(email, now);
-  list.push(now);
-  failures.set(email, list);
+/** Seconds until this email may try again from this IP, or 0 if it isn't locked. */
+export function lockedForSeconds(email: string, ipHash: string, now = Date.now()): number {
+  return Math.max(waitFor(pairKey(email, ipHash), MAX_FAILURES, now), waitFor(email, MAX_ACCOUNT_FAILURES, now));
+}
+
+export function recordFailure(email: string, ipHash: string, now = Date.now()): void {
+  for (const key of [pairKey(email, ipHash), email]) {
+    const list = recent(key, now);
+    list.push(now);
+    failures.set(key, list);
+  }
   if (failures.size > MAX_TRACKED) {
     // Drop the oldest entries rather than grow without bound under a spray attack.
     for (const key of failures.keys()) {
@@ -38,8 +49,9 @@ export function recordFailure(email: string, now = Date.now()): void {
   }
 }
 
-export function clearFailures(email: string): void {
+export function clearFailures(email: string, ipHash: string): void {
   failures.delete(email);
+  failures.delete(pairKey(email, ipHash));
 }
 
 /** Test hook. */

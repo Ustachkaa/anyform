@@ -44,7 +44,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     const body = loginSchema.parse(request.body ?? {});
     const identity = await resolveIdentity(request, reply);
 
-    const wait = lockedForSeconds(body.email);
+    const wait = lockedForSeconds(body.email, identity.ipHash);
     if (wait > 0) {
       throw new ApiHttpError(429, "RATE_LIMITED", `Too many wrong passwords for this account. Try again in ${Math.ceil(wait / 60)} minute${wait > 60 ? "s" : ""}, or reset your password.`, { retryAfterSeconds: wait });
     }
@@ -52,10 +52,10 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     const user = await prisma.user.findUnique({ where: { email: body.email }, include: { subscription: true } });
     const ok = user ? await verifyPassword(body.password, user.passwordHash) : await verifyAgainstNobody(body.password);
     if (!user || !ok) {
-      recordFailure(body.email);
+      recordFailure(body.email, identity.ipHash);
       throw errors.unauthorized("Wrong email or password.");
     }
-    clearFailures(body.email);
+    clearFailures(body.email, identity.ipHash);
 
     await mergeGuestIntoUser(identity.guestId, user.id);
     await issueSession(reply, user.id, user.sessionVersion);
@@ -93,7 +93,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       prisma.passwordReset.deleteMany({ where: { userId: row.userId, id: { not: row.id } } }),
     ]);
 
-    clearFailures(user.email);
+    clearFailures(user.email, identity.ipHash);
     await mergeGuestIntoUser(identity.guestId, user.id);
     await issueSession(reply, user.id, user.sessionVersion);
     const res: AuthResponse = { user: userToDTO(user) };

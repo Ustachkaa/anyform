@@ -283,7 +283,8 @@ re-delivered webhook grants nothing).
   the base compose file binds web/api to 127.0.0.1.
 - CSRF: SameSite=Lax cookies, plus the API refuses POST/PATCH/DELETE whose
   `Origin` is not the site's (webhooks exempt; they are signed).
-- Login: 10 wrong passwords per email per 15 min locks that email (in-memory,
+- Login: 10 wrong passwords per email from one IP per 15 min locks that pair;
+  100 from any IPs locks the email (in-memory,
   single API process); unknown emails cost the same bcrypt time as wrong passwords.
 - Web pages send CSP (self + Paddle only, `frame-ancestors 'none'`),
   X-Frame-Options, Permissions-Policy, Referrer-Policy; post-login redirects

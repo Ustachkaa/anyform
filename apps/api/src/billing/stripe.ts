@@ -91,11 +91,14 @@ export class StripeBilling implements BillingProvider {
     }
 
     switch (event.type) {
-      case "checkout.session.completed": {
+      // Card payments arrive paid on completion; SEPA, bank debits and the like
+      // complete unpaid and report success later in async_payment_succeeded.
+      case "checkout.session.completed":
+      case "checkout.session.async_payment_succeeded": {
         const session = event.data.object;
         if (session.mode === "payment") {
           const product = session.metadata?.product;
-          const userId = session.metadata?.userId ?? session.client_reference_id ?? undefined;
+          const userId = await this.existingUser(session.metadata?.userId ?? session.client_reference_id ?? undefined);
           if (session.payment_status !== "paid" || !isOneTimeProductId(product) || !userId) return { type: event.type, handled: false };
           await grantPurchase({ userId, provider: "stripe", providerTransactionId: session.id, product });
           return { type: event.type, handled: true };
@@ -117,10 +120,15 @@ export class StripeBilling implements BillingProvider {
     }
   }
 
+  /** The id, if that user still exists. A deleted account must not make Stripe retry the webhook forever. */
+  private async existingUser(id: string | undefined): Promise<string | undefined> {
+    if (!id) return undefined;
+    return (await prisma.user.findUnique({ where: { id }, select: { id: true } }))?.id;
+  }
+
   private async resolveUserId(sub: Stripe.Subscription, hint?: string): Promise<string | undefined> {
-    const fromMeta = sub.metadata?.userId;
-    if (fromMeta) return fromMeta;
-    if (hint) return hint;
+    const known = (await this.existingUser(sub.metadata?.userId)) ?? (await this.existingUser(hint));
+    if (known) return known;
     const customerId = idOf(sub.customer as string | Stripe.Customer);
     if (!customerId) return undefined;
     const user = await prisma.user.findUnique({ where: { stripeCustomerId: customerId }, select: { id: true } });

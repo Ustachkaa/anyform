@@ -28,8 +28,11 @@ const logMailer: Mailer = {
   async send(msg) {
     sentMail.push(msg);
     if (sentMail.length > 50) sentMail.shift();
+    if (process.env.VITEST) return;
+    // In production the body holds live reset links: whoever reads the log could take the account.
+    const body = isProd ? " (body withheld in production)" : `\n${msg.text}\n`;
     // eslint-disable-next-line no-console
-    if (!process.env.VITEST) console.info(`[mail:log] to=${msg.to} subject="${msg.subject}"\n${msg.text}\n`);
+    console.info(`[mail:log] to=${msg.to} subject="${msg.subject}"${body}`);
   },
 };
 
@@ -60,7 +63,7 @@ export function setMailer(m: Mailer | undefined): void {
 
 if (isProd && config.MAIL_DRIVER === "log") {
   // eslint-disable-next-line no-console
-  console.warn("[mail] MAIL_DRIVER=log in production: password-reset emails are only written to the log.");
+  console.warn("[mail] MAIL_DRIVER=log in production: password-reset emails are not delivered (bodies are withheld from the log). Set MAIL_DRIVER=resend.");
 }
 
 export function escapeHtml(s: string): string {

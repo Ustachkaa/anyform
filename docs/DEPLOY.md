@@ -107,7 +107,8 @@ If you use Stripe (via a US LLC or Stripe Atlas):
 1. Create three products (Starter, Pro, Business) with monthly and yearly
    prices; paste the six `price_...` ids into `STRIPE_PRICE_*`.
 2. Add a webhook endpoint `https://anyform.app/webhooks/billing` for
-   `checkout.session.completed`, `customer.subscription.created`,
+   `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+   `customer.subscription.created`,
    `customer.subscription.updated`, `customer.subscription.deleted`; paste the
    signing secret into `STRIPE_WEBHOOK_SECRET`.
 3. Enable the Customer Portal in Stripe settings.

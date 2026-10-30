@@ -108,8 +108,15 @@ export class PaddleBilling implements BillingProvider {
     const created = await this.api<{ id: string }>("POST", "/customers", { email: user.email, name: user.name ?? undefined, custom_data: { userId: user.id } });
     let id = created.status < 300 ? created.data?.id : undefined;
     if (!id && created.status === 409) {
-      const found = await this.api<Array<{ id: string }>>("GET", `/customers?email=${encodeURIComponent(user.email)}`);
-      id = found.data?.[0]?.id;
+      // Adopt the existing customer only if we made it for this same user (a lost write).
+      // Emails are not verified, so matching on email alone would hand one account
+      // another person's Paddle customer, portal and invoices.
+      const found = await this.api<Array<{ id: string; custom_data?: Record<string, unknown> | null }>>(
+        "GET",
+        `/customers?email=${encodeURIComponent(user.email)}`,
+      );
+      id = found.data?.find((c) => asString(c.custom_data?.userId) === user.id)?.id;
+      if (!id) throw errors.conflict("This email is already linked to a different billing account. Contact support.");
     }
     if (!id) throw errors.internal(`Paddle could not create a customer (${created.error?.code ?? created.status}).`);
     await prisma.user.update({ where: { id: user.id }, data: { paddleCustomerId: id } });
