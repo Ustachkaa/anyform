@@ -26,7 +26,7 @@ import { conversionToDTO } from "../dto.js";
 import { ApiHttpError, errors } from "../errors.js";
 import { contentDisposition } from "../http.js";
 import { enqueueConvert } from "../queue.js";
-import { assertCanConvert, buildUsage, chargeConversion, ownerWhere, refundCredit } from "../quota/usage.js";
+import { assertCanConvert, buildUsage, chargeConversion, ownerWhere, refundCredit, withOwnerLock } from "../quota/usage.js";
 import { buildKey, getStorage } from "../storage/index.js";
 
 const uploadTmpDir =
@@ -88,7 +88,8 @@ export const conversionRoutes: FastifyPluginAsync = async (app) => {
       const declared = Number(request.headers["content-length"]);
       if (Number.isFinite(declared) && declared > plan.maxFileBytes + 1024 * 1024) throw errors.fileTooLarge(plan.maxFileBytes);
 
-      const usageBefore = await assertCanConvert(identity, null);
+      // Fast fail before reading the body; the authoritative check runs under a lock below.
+      await assertCanConvert(identity, null);
       await assertGuestIpAllowance(identity);
 
       const part = await request.file({ limits: { fileSize: plan.maxFileBytes } });
@@ -104,16 +105,14 @@ export const conversionRoutes: FastifyPluginAsync = async (app) => {
         throw errors.unsupportedFormat(extOf(part.filename) || "unknown");
       }
 
-      // Target may arrive as a query param or as a field *before* the file.
-      let targetRaw = request.query.target ?? fieldValue(part, "target");
-      let resolved: ReturnType<typeof requireTarget> | undefined;
-      if (targetRaw) {
-        try {
-          resolved = requireTarget(source, targetRaw, fieldValue(part, "options"));
-        } catch (err) {
-          drain();
-          throw err;
-        }
+      // Target must arrive as a query param or as a field *before* the file:
+      // fields after the file part are never parsed, so fail before streaming it.
+      let resolved: ReturnType<typeof requireTarget>;
+      try {
+        resolved = requireTarget(source, request.query.target ?? fieldValue(part, "target"), fieldValue(part, "options"));
+      } catch (err) {
+        drain();
+        throw err;
       }
 
       const id = randomUUID();
@@ -122,25 +121,20 @@ export const conversionRoutes: FastifyPluginAsync = async (app) => {
         await pipeline(part.file, createWriteStream(tmpPath));
         if (part.file.truncated) throw errors.fileTooLarge(plan.maxFileBytes);
 
-        if (!resolved) {
-          targetRaw = fieldValue(part, "target");
-          resolved = requireTarget(source, targetRaw, fieldValue(part, "options"));
-        }
-
         const bytes = (await stat(tmpPath)).size;
         if (bytes === 0) throw errors.validation("That file is empty.");
         if (bytes > plan.maxFileBytes) throw errors.fileTooLarge(plan.maxFileBytes);
 
-        // Spend the pack credit (if that's what pays) only now that the upload is valid,
-        // and before storing anything, so a lost race for the last credit leaves no file behind.
-        const chargedAs = await chargeConversion(identity, usageBefore);
+        // The check above ran before the upload, so parallel uploads all passed it.
+        // Re-check, charge and insert the row under a per-owner lock: the row is
+        // what the next waiter counts, so only as many get through as are allowed.
         const createdAt = new Date();
         const sourceKey = buildKey("src", id, source.ext, createdAt);
         const sourceName = safeFilename(part.filename);
-        let row;
-        try {
-          await getStorage().putFile(sourceKey, tmpPath, source.mime);
-          row = await prisma.conversion.create({
+        const row = await withOwnerLock(identity, async (tx) => {
+          const usage = await assertCanConvert(identity, null, tx);
+          const chargedAs = await chargeConversion(identity, usage, tx);
+          return tx.conversion.create({
             data: {
               id,
               userId: identity.userId ?? null,
@@ -159,10 +153,13 @@ export const conversionRoutes: FastifyPluginAsync = async (app) => {
               expiresAt: new Date(createdAt.getTime() + plan.retentionHours * 3600 * 1000),
             },
           });
+        });
+
+        try {
+          await getStorage().putFile(sourceKey, tmpPath, source.mime);
         } catch (err) {
-          if (chargedAs === "credit" && identity.userId) {
-            await prisma.user.update({ where: { id: identity.userId }, data: { credits: { increment: 1 } } }).catch(() => undefined);
-          }
+          await prisma.conversion.update({ where: { id }, data: { status: "failed", error: "Could not store the upload. Please try again." } });
+          await refundCredit(id, row.userId);
           throw err;
         }
 
