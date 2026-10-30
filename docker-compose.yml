@@ -47,7 +47,7 @@ services:
       context: .
       dockerfile: infra/api.Dockerfile
     restart: unless-stopped
-    command: ["sh", "-c", "npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && node apps/api/dist/server.js"]
+    command: ["sh", "-c", "npx prisma migrate deploy --config apps/api/prisma.config.ts && node apps/api/dist/server.js"]
     env_file: .env
     environment:
       DATABASE_URL: postgresql://anyform:anyform@db:5432/anyform

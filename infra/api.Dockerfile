@@ -29,7 +29,7 @@ COPY tsconfig.base.json ./
 COPY packages/shared packages/shared
 COPY apps/api apps/api
 RUN npm run build -w @anyform/shared \
- && npx prisma generate --schema apps/api/prisma/schema.prisma \
+ && npx prisma generate --config apps/api/prisma.config.ts \
  && npm run build -w @anyform/api
 
 FROM base AS runtime
@@ -41,6 +41,7 @@ COPY --from=build /app/packages/shared/dist ./packages/shared/dist
 COPY --from=build /app/apps/api/package.json ./apps/api/package.json
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/api/prisma ./apps/api/prisma
+COPY --from=build /app/apps/api/prisma.config.ts ./apps/api/prisma.config.ts
 # Engine security config (ImageMagick policy.xml)
 COPY --from=build /app/apps/api/config ./apps/api/config
 RUN mkdir -p /data && chown -R node:node /data /app

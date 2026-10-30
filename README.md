@@ -20,8 +20,8 @@ spreadsheets, presentations and ebooks into other formats. Every visitor gets
 
 | Layer | Tech |
 | --- | --- |
-| Web | Next.js 15 (App Router), React 19, Tailwind CSS v4, TypeScript |
-| API | Fastify 5, Prisma 6, pg-boss (Postgres-backed queue), zod |
+| Web | Next.js 16 (App Router), React 19, Tailwind CSS v4, TypeScript |
+| API | Fastify 5, Prisma 7 (pg driver adapter), pg-boss (Postgres-backed queue), zod |
 | Worker | Same package as the API; engines: ffmpeg, sharp, LibreOffice, pandoc, calibre, poppler, pdf-lib, ImageMagick |
 | Data | PostgreSQL 16 · files on local disk or any S3-compatible store |
 | Billing | Stripe (behind a provider interface — Paddle-ready) |
@@ -35,7 +35,7 @@ docker compose up -d db            # Postgres on :5432 (or: npm run dev:db — e
 npm install
 npm run build -w @anyform/shared
 npm run db:generate
-npm run db:migrate                 # creates tables (prisma migrate dev)
+npm run db:migrate                 # creates tables (prisma migrate dev; Prisma 7 does not regenerate, so run db:generate after schema changes)
 
 npm run dev:api                    # http://localhost:4000
 npm run dev:worker                 # picks up jobs

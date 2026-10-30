@@ -6,7 +6,7 @@ change a rule here, change the code that implements it in the same commit.
 ## 1. System overview
 
 ```
- Browser ──────► apps/web (Next.js 15, port 3000)
+ Browser ──────► apps/web (Next.js 16, port 3000)
     │               │  /api/* is rewritten server-side to the API, so the
     │               │  browser only ever talks to one origin (no CORS,
     │               │  cookies are first-party).
@@ -53,7 +53,7 @@ anyform/
 │   │       ├── routes/      auth, conversions, usage, billing, formats, health
 │   │       ├── engines/     one file per engine + registry that maps (from,to) → engine
 │   │       └── jobs/        convert job handler, cleanup job
-│   └── web/                 Next.js 15 App Router + Tailwind v4
+│   └── web/                 Next.js 16 App Router + Tailwind v4
 │       └── src/
 │           ├── app/         routes (see §7)
 │           ├── components/  converter, format chips, pricing table, etc.

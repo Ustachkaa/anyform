@@ -4,7 +4,7 @@
 
 A freemium file-conversion SaaS (video/audio/image/document/spreadsheet/
 presentation/ebook). npm-workspaces monorepo: `packages/shared`,
-`apps/api` (Fastify API + worker), `apps/web` (Next.js 15).
+`apps/api` (Fastify API + worker), `apps/web` (Next.js 16).
 Read `docs/ARCHITECTURE.md` before changing anything that crosses a package
 boundary; it is the contract.
 
