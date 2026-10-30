@@ -32,6 +32,11 @@ export const resetPasswordSchema = z.object({
 });
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
+export const verifyEmailSchema = z.object({
+  token: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/, "This confirmation link is invalid."),
+});
+export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
+
 /** Profile edits. Changing the email needs the current password; a name-only edit does not. */
 export const updateProfileSchema = z
   .object({

@@ -4,10 +4,12 @@ import { Prisma } from "@prisma/client";
 import { currentUserId, requireUser } from "../auth/identity.js";
 import { hashPassword, verifyPassword } from "../auth/password.js";
 import { clearSession, issueSession } from "../auth/session.js";
+import { sendVerificationLink } from "../auth/verify.js";
 import { ACTIVE_STATUSES } from "../billing/provider.js";
 import { prisma } from "../db.js";
 import { userToDTO } from "../dto.js";
 import { errors } from "../errors.js";
+import { emailChangedMail, getMailer } from "../mail/index.js";
 import { getStorage } from "../storage/index.js";
 
 const ACCOUNT_RATE = { max: 10, timeWindow: "15 minutes" };
@@ -31,12 +33,20 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
         throw errors.validation("That isn't your current password.", { field: "currentPassword" });
       }
       data.email = body.email;
-      // Reset links already mailed to the old address must stop working.
+      // Reset links already mailed to the old address must stop working,
+      // and the new address is unproven until its own link is followed.
       data.passwordResets = { deleteMany: {} };
+      data.emailVerifiedAt = null;
+      data.emailVerifications = { deleteMany: {} };
     }
 
     try {
       const updated = await prisma.user.update({ where: { id: user.id }, data, include: { subscription: true } });
+      if (updated.email !== user.email) {
+        const log = (what: string) => (err: unknown) => request.log.error({ err }, what);
+        void sendVerificationLink(updated.id).catch(log("verification email failed"));
+        void getMailer().send(emailChangedMail(user.email, updated.email)).catch(log("email-changed notice failed"));
+      }
       const res: AuthResponse = { user: userToDTO(updated) };
       return res;
     } catch (err) {

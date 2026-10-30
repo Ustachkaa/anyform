@@ -4,7 +4,7 @@ import { ACTIVE_STATUSES, type CheckoutItem } from "../billing/provider.js";
 import { requireUser } from "../auth/identity.js";
 import { getBilling, requireBilling } from "../billing/index.js";
 import { prisma } from "../db.js";
-import { errors } from "../errors.js";
+import { ApiHttpError, errors } from "../errors.js";
 
 export const billingRoutes: FastifyPluginAsync = async (app) => {
   app.post("/billing/checkout", { preHandler: [requireUser], config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request) => {
@@ -12,6 +12,10 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
     const body = checkoutSchema.parse(request.body ?? {});
     const user = await prisma.user.findUnique({ where: { id: request.identity!.userId! }, include: { subscription: true } });
     if (!user) throw errors.unauthorized();
+    // Receipts, the billing portal and the provider's customer all hang off this address.
+    if (!user.emailVerifiedAt) {
+      throw new ApiHttpError(403, "FORBIDDEN", "Confirm your email address before buying. We sent you a link; you can send another from your dashboard.", { reason: "email_unverified" });
+    }
     // A second subscription would bill twice, and its events would fight over the one Subscription row.
     if (!("product" in body) && user.subscription && ACTIVE_STATUSES.has(user.subscription.status)) {
       throw errors.conflict("You already have a subscription. Change plans in Manage billing.", { reason: "already_subscribed" });

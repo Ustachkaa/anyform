@@ -17,6 +17,7 @@ import type {
   UpdateProfileInput,
   UsageDTO,
   UserDTO,
+  VerifyEmailInput,
 } from "@anyform/shared";
 
 /**
@@ -117,6 +118,14 @@ export function forgotPassword(input: ForgotPasswordInput): Promise<{ ok: true }
 
 export function resetPassword(input: ResetPasswordInput): Promise<AuthResponse> {
   return authChanged(request<AuthResponse>("/auth/reset", { method: "POST", body: JSON.stringify(input) }));
+}
+
+export function verifyEmail(input: VerifyEmailInput): Promise<{ ok: true }> {
+  return request<{ ok: true }>("/auth/verify-email", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function resendVerification(): Promise<{ ok: true }> {
+  return request<{ ok: true }>("/auth/verify-email/resend", { method: "POST" });
 }
 
 // ─── Account ───────────────────────────────────────────────────────────────

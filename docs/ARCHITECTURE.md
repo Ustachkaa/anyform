@@ -89,6 +89,14 @@ anyform/
   link revokes older ones, and a second request inside a minute sends
   nothing. Email goes through `apps/api/src/mail` (`MAIL_DRIVER`: `log` in
   development, `resend` in production).
+- **Email verification**: signup and every email change mail a one-time
+  link (`EmailVerification`, SHA-256 of a 256-bit token, 24 h, bound to the
+  address it was sent to, so a later change voids it). Following it, or a
+  password-reset link, sets `User.emailVerifiedAt`; an email change clears it
+  and also notifies the old address. Converting never needs it; buying does
+  (`POST /billing/checkout` answers 403 `email_unverified`), since receipts and
+  the provider's customer hang off the address. Someone squatting an address
+  they don't own loses the account to its owner through "forgot password".
 - Request identity is resolved once per request into
   `{ userId?, guestId, plan, planSource, credits, passUntil? }` and attached to
   `request.identity`. `plan` is the subscription's plan, or `starter` while a
@@ -165,6 +173,8 @@ Web polls `GET /v1/conversions/:id` every 1.5 s while queued/processing.
 | `GET /auth/me` | session | `{ user }` or 401 |
 | `POST /auth/forgot` | – | body `{ email }` → always 202; emails a reset link if the account exists |
 | `POST /auth/reset` | – | body `{ token, password }` → sets the password, signs out other sessions, logs in, `{ user }`; 400 if the link expired or was used |
+| `POST /auth/verify-email` | – | body `{ token }` → `{ ok: true }`; 400 if the link expired, was used, or the email changed since |
+| `POST /auth/verify-email/resend` | session | → 202; mails a new link unless verified or one went out in the last minute |
 | `PATCH /account` | session | body `{ name?, email?, currentPassword? }` (password required to change email) → `{ user }`; 409 if the email is taken |
 | `POST /account/password` | session | body `{ currentPassword, newPassword }` → signs out other sessions, fresh cookie, `{ user }` |
 | `DELETE /account` | session | body `{ password }` → deletes files, history and account, 204; 409 `active_subscription` while a subscription is active and not set to cancel |
@@ -174,7 +184,7 @@ Web polls `GET /v1/conversions/:id` every 1.5 s while queued/processing.
 | `GET /conversions/:id` | owner | `ConversionDTO` |
 | `GET /conversions/:id/download` | owner | file |
 | `DELETE /conversions/:id` | owner | 204 |
-| `POST /billing/checkout` | session | body `{ plan, interval }` (subscription) or `{ product: "pack" | "pass" }` → `{ url }` |
+| `POST /billing/checkout` | session | body `{ plan, interval }` (subscription) or `{ product: "pack" | "pass" }` → `{ url }`; 403 `email_unverified` until the email is confirmed |
 | `POST /billing/portal` | session | `{ url }` |
 | `POST /billing/webhook` | provider signature | raw body; updates Subscription + User.plan |
 
@@ -191,6 +201,7 @@ Errors are always `{ error: { code, message, details? } }` with the codes in
 | `/pricing` | static | Plan table with monthly/yearly toggle, FAQ |
 | `/login`, `/signup` | client | Forms validated with shared zod schemas |
 | `/forgot-password`, `/reset-password` | client | Ask for a reset link; set a new password from the emailed link (page sends no Referer) |
+| `/verify-email` | client | Spends the emailed confirmation token on load (page sends no Referer) |
 | `/account` | dynamic | Profile (name, email), change password, delete account |
 | `/dashboard` | dynamic (server reads session via API) | Usage meter (free count, pack credits, pass), history, download/delete, manage billing |
 | `/checkout` | client | Opens Paddle's checkout overlay for `?_ptxn=` (Paddle default payment link) |

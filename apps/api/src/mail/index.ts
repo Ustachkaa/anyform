@@ -84,3 +84,27 @@ export function passwordResetMail(to: string, link: string, minutes: number): Ma
 <p>If you didn't ask for this, ignore this email. Your password stays the same.</p>`;
   return { to, subject: "Reset your Anyform password", text, html };
 }
+
+export function verifyEmailMail(to: string, link: string, hours: number): MailMessage {
+  const text = [
+    "Confirm this is your email address for Anyform:",
+    link,
+    "",
+    `The link works once, for ${hours} hours. If you didn't sign up or change your email at Anyform, ignore this email.`,
+  ].join("\n");
+  const html = `<p><a href="${escapeHtml(link)}">Confirm this is your email address for Anyform</a>.</p>
+<p>The link works once, for ${hours} hours. If you didn't sign up or change your email at Anyform, ignore this email.</p>`;
+  return { to, subject: "Confirm your email for Anyform", text, html };
+}
+
+/** Sent to the old address when the account's email changes, so a takeover doesn't go unnoticed. */
+export function emailChangedMail(to: string, newEmail: string): MailMessage {
+  const text = [
+    `The email address on your Anyform account was just changed to ${newEmail}.`,
+    "",
+    "If that was you, there's nothing to do. If it wasn't, reply to this email and we'll lock the account.",
+  ].join("\n");
+  const html = `<p>The email address on your Anyform account was just changed to ${escapeHtml(newEmail)}.</p>
+<p>If that was you, there's nothing to do. If it wasn't, reply to this email and we'll lock the account.</p>`;
+  return { to, subject: "Your Anyform email was changed", text, html };
+}

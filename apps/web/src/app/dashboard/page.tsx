@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatBytes, formatRetention, getPlan, isPaidPlan } from "@anyform/shared";
 import { AccountActions } from "@/components/AccountActions";
+import { VerifyEmailNotice } from "@/components/EmailVerification";
 import { JobHistory } from "@/components/JobHistory";
 import { UsageMeter } from "@/components/UsageMeter";
 import { getServerUsage, getSessionUser } from "@/lib/session";
@@ -28,6 +29,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
         <AccountActions paid={paid} />
       </div>
+
+      {!user.emailVerified && <VerifyEmailNotice email={user.email} />}
 
       {checkout === "success" && (
         <p role="status" className="mt-6 rounded-[4px] border border-line bg-accent/20 px-4 py-3 text-sm text-ink">

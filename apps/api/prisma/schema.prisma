@@ -15,6 +15,8 @@ datasource db {
 model User {
   id               String   @id @default(cuid())
   email            String   @unique
+  /// When the owner last proved they read mail at `email` (verify link or password reset). Null after an email change.
+  emailVerifiedAt  DateTime?
   passwordHash     String
   name             String?
   /// "free" | "starter" | "pro" | "business" — denormalised from Subscription for fast quota checks.
@@ -34,6 +36,7 @@ model User {
   subscription   Subscription?
   apiKeys        ApiKey[]
   passwordResets PasswordReset[]
+  emailVerifications EmailVerification[]
   purchases      Purchase[]
 }
 
@@ -60,6 +63,20 @@ model PasswordReset {
   id        String    @id @default(cuid())
   userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+/// One-time email-verification link, bound to the address it was sent to. Only the SHA-256 of the token is stored.
+model EmailVerification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email     String
   tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?

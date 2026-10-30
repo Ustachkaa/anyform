@@ -57,7 +57,7 @@ function ProfileForm({ user }: { user: UserDTO }) {
         ...(emailChanged ? { email, currentPassword } : {}),
       });
       setCurrentPassword("");
-      setStatus({ kind: "ok", text: "Saved." });
+      setStatus({ kind: "ok", text: emailChanged ? `Saved. We sent a confirmation link to ${email.trim()}.` : "Saved." });
       router.refresh();
     } catch (err) {
       setStatus({ kind: "error", text: explainError(err) });

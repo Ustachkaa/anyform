@@ -1,11 +1,12 @@
 import type { FastifyPluginAsync } from "fastify";
-import { forgotPasswordSchema, loginSchema, resetPasswordSchema, signupSchema, type AuthResponse } from "@anyform/shared";
+import { forgotPasswordSchema, loginSchema, resetPasswordSchema, signupSchema, verifyEmailSchema, type AuthResponse } from "@anyform/shared";
 import { Prisma } from "@prisma/client";
 import { mergeGuestIntoUser, requireUser, resolveIdentity } from "../auth/identity.js";
 import { clearFailures, lockedForSeconds, recordFailure } from "../auth/lockout.js";
 import { hashPassword, verifyAgainstNobody, verifyPassword } from "../auth/password.js";
 import { hashResetToken, sendResetLink } from "../auth/reset.js";
 import { clearSession, issueSession } from "../auth/session.js";
+import { consumeVerificationToken, sendVerificationLink } from "../auth/verify.js";
 import { prisma } from "../db.js";
 import { userToDTO } from "../dto.js";
 import { ApiHttpError, errors } from "../errors.js";
@@ -36,6 +37,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
     await mergeGuestIntoUser(identity.guestId, user.id);
     await issueSession(reply, user.id, user.sessionVersion);
+    void sendVerificationLink(user.id).catch((err) => request.log.error({ err }, "verification email failed"));
     const res: AuthResponse = { user: userToDTO(user) };
     return reply.status(201).send(res);
   });
@@ -86,7 +88,8 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     const [user] = await prisma.$transaction([
       prisma.user.update({
         where: { id: row.userId },
-        data: { passwordHash, sessionVersion: { increment: 1 } },
+        // Following the emailed link proves the inbox, same as a verification link.
+        data: { passwordHash, sessionVersion: { increment: 1 }, emailVerifiedAt: new Date() },
         include: { subscription: true },
       }),
       prisma.passwordReset.update({ where: { id: row.id }, data: { usedAt: new Date() } }),
@@ -98,6 +101,20 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     await issueSession(reply, user.id, user.sessionVersion);
     const res: AuthResponse = { user: userToDTO(user) };
     return res;
+  });
+
+  /** No session needed: the link may be opened on another device. */
+  app.post("/auth/verify-email", { config: { rateLimit: AUTH_RATE } }, async (request) => {
+    const body = verifyEmailSchema.parse(request.body ?? {});
+    if (!(await consumeVerificationToken(body.token))) {
+      throw errors.validation("This confirmation link has expired or was already used. Send a new one from your dashboard.", { field: "token" });
+    }
+    return { ok: true };
+  });
+
+  app.post("/auth/verify-email/resend", { preHandler: [requireUser], config: { rateLimit: { max: 5, timeWindow: "15 minutes" } } }, async (request, reply) => {
+    await sendVerificationLink(request.identity!.userId!);
+    return reply.status(202).send({ ok: true });
   });
 
   app.post("/auth/logout", async (_request, reply) => {

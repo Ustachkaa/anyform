@@ -29,6 +29,8 @@ export interface ConversionDTO {
 export interface UserDTO {
   id: string;
   email: string;
+  /** The owner has confirmed they read mail at `email`; required before buying. */
+  emailVerified: boolean;
   name: string | null;
   plan: PlanId;
   createdAt: string;

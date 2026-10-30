@@ -55,6 +55,7 @@ export function userToDTO(user: User & { subscription?: Subscription | null }): 
   return {
     id: user.id,
     email: user.email,
+    emailVerified: user.emailVerifiedAt !== null,
     name: user.name,
     plan: getPlan(user.plan).id,
     createdAt: user.createdAt.toISOString(),
