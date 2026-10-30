@@ -11,7 +11,7 @@ import {
   targetsFor,
 } from "./formats.js";
 import { computeQuota } from "./quota.js";
-import { PLANS, yearlySavingsPct } from "./plans.js";
+import { isPlanId, PLANS, yearlySavingsPct } from "./plans.js";
 import { formatBytes, replaceExt, safeFilename } from "./util.js";
 
 describe("format registry", () => {
@@ -106,6 +106,11 @@ describe("plans & util", () => {
   it("yearly billing saves roughly a quarter", () => {
     expect(yearlySavingsPct(PLANS.starter)).toBe(25);
     expect(yearlySavingsPct(PLANS.pro)).toBe(20);
+  });
+
+  it("isPlanId ignores inherited object keys", () => {
+    expect(isPlanId("pro")).toBe(true);
+    for (const bad of ["constructor", "toString", "__proto__"]) expect(isPlanId(bad)).toBe(false);
   });
 
   it("formats bytes and filenames", () => {

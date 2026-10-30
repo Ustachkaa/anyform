@@ -42,6 +42,8 @@ export function mp3VbrQuality(quality: number): number {
   return clamp(Math.round(9 - quality * 0.09), 0, 9);
 }
 
+export const MAX_VIDEO_DIM = 3840;
+
 const AUDIO_ONLY = new Set(["mp3", "wav", "flac", "aac", "m4a", "ogg", "opus", "wma", "aiff", "amr"]);
 
 function scaleFilter(o: ConversionOptions, evenDims: boolean): string | undefined {
@@ -69,6 +71,9 @@ export const INPUT_DEMUXERS = "mov,matroska,avi,asf,flv,mpeg,mpegvideo,mpegts,og
  */
 export function buildFfmpegArgs(input: string, output: string, toExt: string, o: ConversionOptions = {}): string[] {
   const target = getFormat(toExt)?.ext ?? toExt;
+  // ffmpeg will upscale; cap the frame so a tiny clip can't become a 16K render.
+  if (o.width) o = { ...o, width: Math.min(o.width, MAX_VIDEO_DIM) };
+  if (o.height) o = { ...o, height: Math.min(o.height, MAX_VIDEO_DIM) };
   const args: string[] = ["-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-nostats", "-progress", "pipe:1"];
 
   const start = o.trimStartSec ?? 0;
@@ -238,7 +243,12 @@ export const ffmpegEngine: Engine = {
     if (!found) throw new EngineError("ffmpeg", "ffmpeg is not installed");
 
     // 1. duration probe (exits non-zero on purpose: no output specified)
-    const probe = await run(found.path, ["-hide_banner", "-nostdin", "-i", ctx.inputPath], { timeoutMs: 60_000 });
+    // Same input restrictions as the real run, or a disguised playlist gets opened here.
+    const probe = await run(
+      found.path,
+      ["-hide_banner", "-nostdin", "-protocol_whitelist", "file", "-format_whitelist", INPUT_DEMUXERS, "-i", ctx.inputPath],
+      { timeoutMs: 60_000 },
+    );
     let duration = parseDuration(probe.stderr);
     if (duration !== undefined) {
       const start = ctx.options.trimStartSec ?? 0;

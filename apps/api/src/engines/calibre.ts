@@ -21,6 +21,9 @@ export function calibreSupports(fromExt: string, toExt: string): boolean {
 
 export function buildCalibreArgs(input: string, output: string, fromExt: string, toExt: string): string[] {
   const args = [input, output];
+  // Untrusted HTML: calibre would otherwise follow links to other local files
+  // (e.g. file:///proc/self/environ) and pack them into the book.
+  if (fromExt === "html") args.push("--max-levels", "0");
   if (fromExt === "md" || fromExt === "txt") args.push("--formatting-type", fromExt === "md" ? "markdown" : "auto");
   if (toExt === "pdf") args.push("--paper-size", "a4", "--pdf-page-numbers");
   if (toExt === "mobi") args.push("--mobi-file-type", "both");

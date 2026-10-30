@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { buildFfmpegArgs, INPUT_DEMUXERS } from "./ffmpeg.js";
+import { buildCalibreArgs } from "./calibre.js";
+import { buildFfmpegArgs, INPUT_DEMUXERS, MAX_VIDEO_DIM } from "./ffmpeg.js";
 import { buildMagickArgs, MAGICK_POLICY_DIR } from "./imagemagick.js";
 import { buildPandocArgs } from "./pandoc.js";
 import { windowsConsoleLauncher } from "./libreoffice.js";
@@ -47,6 +48,18 @@ describe("ffmpeg input hardening", () => {
     expect(args[args.indexOf("-format_whitelist") + 1]).toBe(INPUT_DEMUXERS);
     expect(args.indexOf("-format_whitelist")).toBeLessThan(args.indexOf("-i"));
     for (const bad of ["hls", "concat", "image2", "lavfi", "tty"]) expect(INPUT_DEMUXERS.split(",")).not.toContain(bad);
+  });
+
+  it("caps requested video dimensions instead of upscaling to 16K", () => {
+    const args = buildFfmpegArgs("/t/in.mp4", "/t/o.mp4", "mp4", { width: 16384, height: 9000 });
+    expect(args.join(" ")).toContain(`scale=${MAX_VIDEO_DIM}:${MAX_VIDEO_DIM}`);
+  });
+});
+
+describe("calibre input hardening", () => {
+  it("does not follow links out of uploaded HTML", () => {
+    const args = buildCalibreArgs("/t/in.html", "/t/o.mobi", "html", "mobi");
+    expect(args[args.indexOf("--max-levels") + 1]).toBe("0");
   });
 });
 

@@ -31,6 +31,8 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
         throw errors.validation("That isn't your current password.", { field: "currentPassword" });
       }
       data.email = body.email;
+      // Reset links already mailed to the old address must stop working.
+      data.passwordResets = { deleteMany: {} };
     }
 
     try {

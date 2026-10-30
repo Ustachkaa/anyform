@@ -175,7 +175,7 @@ export const PLAN_ORDER: readonly PlanId[] = ["free", "starter", "pro", "busines
 export const PAID_PLANS: readonly PlanId[] = ["starter", "pro", "business"];
 
 export function isPlanId(v: unknown): v is PlanId {
-  return typeof v === "string" && v in PLANS;
+  return typeof v === "string" && Object.hasOwn(PLANS, v);
 }
 
 export function isPaidPlan(id: PlanId): boolean {

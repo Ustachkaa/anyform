@@ -73,8 +73,8 @@ export const createConversionFieldsSchema = z.object({
       fps: z.number().min(1).max(120).optional(),
       audioBitrateKbps: z.number().int().min(32).max(512).optional(),
       videoBitrateKbps: z.number().int().min(100).max(50000).optional(),
-      trimStartSec: z.number().min(0).optional(),
-      trimEndSec: z.number().min(0).optional(),
+      trimStartSec: z.number().min(0).max(86_400).optional(),
+      trimEndSec: z.number().min(0).max(86_400).optional(),
       pages: z.string().regex(/^[0-9,\-]+$/).max(64).optional(),
     })
     .partial()

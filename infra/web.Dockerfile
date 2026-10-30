@@ -11,6 +11,16 @@ FROM deps AS build
 COPY tsconfig.base.json ./
 COPY packages/shared packages/shared
 COPY apps/web apps/web
+# next build bakes the /api rewrite target and NEXT_PUBLIC_* into the bundle,
+# so they must be known here, not only at runtime.
+ARG API_INTERNAL_URL=http://api:4000
+ARG NEXT_PUBLIC_SITE_URL
+ARG NEXT_PUBLIC_PADDLE_CLIENT_TOKEN
+ARG NEXT_PUBLIC_PADDLE_ENV
+ENV API_INTERNAL_URL=$API_INTERNAL_URL \
+    NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
+    NEXT_PUBLIC_PADDLE_CLIENT_TOKEN=$NEXT_PUBLIC_PADDLE_CLIENT_TOKEN \
+    NEXT_PUBLIC_PADDLE_ENV=$NEXT_PUBLIC_PADDLE_ENV
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build -w @anyform/shared && npm run build -w @anyform/web
 
