@@ -89,12 +89,13 @@ export function currentUserId(request: FastifyRequest): string {
 
 /**
  * Re-attribute a guest's conversions to a user so the free count follows the
- * person into their account. Idempotent.
+ * person into their account. Idempotent. guestId stays on the rows so the
+ * browser's guest allowance still counts them after logout (§3).
  */
 export async function mergeGuestIntoUser(guestId: string, userId: string): Promise<number> {
   const res = await prisma.conversion.updateMany({
     where: { guestId, userId: null },
-    data: { userId, guestId: null },
+    data: { userId },
   });
   return res.count;
 }

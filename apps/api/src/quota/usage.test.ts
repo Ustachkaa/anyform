@@ -33,7 +33,9 @@ describe("quota period math", () => {
     count.mockResolvedValue(4);
     await expect(countUsed(guest)).resolves.toBe(4);
     const where = count.mock.calls[0]?.[0] as { where: Record<string, unknown> };
-    expect(where.where).toMatchObject({ guestId: "g-1", userId: null, status: { not: "failed" } });
+    expect(where.where).toMatchObject({ guestId: "g-1", status: { not: "failed" } });
+    // Rows since claimed by an account still count for this browser.
+    expect(where.where).not.toHaveProperty("userId");
     expect(where.where.createdAt).toBeUndefined();
   });
 

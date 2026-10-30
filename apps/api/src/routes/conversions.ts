@@ -138,7 +138,8 @@ export const conversionRoutes: FastifyPluginAsync = async (app) => {
             data: {
               id,
               userId: identity.userId ?? null,
-              guestId: identity.userId ? null : identity.guestId,
+              // Kept for signed-in users too: the browser's guest allowance counts it after logout.
+              guestId: identity.guestId,
               status: "queued",
               chargedAs,
               sourceName,

@@ -74,9 +74,10 @@ anyform/
   sets `af_session`, an httpOnly JWT cookie (`@fastify/jwt`, 30-day expiry,
   `SameSite=Lax`, `Secure` in production).
 - **Merge**: on signup or login, every `Conversion` with the current
-  `guestId` and `userId = null` is updated to the user and `guestId` is
-  cleared. The free count therefore follows the person to their account and
-  cannot be reset by signing up.
+  `guestId` and `userId = null` is updated to the user. `guestId` is kept
+  (and is stored on rows made while signed in too), so the free count follows
+  the person to their account and cannot be reset by signing up or by logging
+  out again. Guests can only open rows that are still unclaimed.
 - **Session version**: the JWT carries `sv` = `User.sessionVersion` at
   sign-in. Changing or resetting the password increments it, so every
   session issued before that stops resolving to the user (other devices are
@@ -102,7 +103,7 @@ Implemented in `packages/shared/src/quota.ts` and enforced in
 2. `FREE_QUOTA_PERIOD` is `lifetime` (default) or `monthly` (resets at the
    start of each UTC calendar month).
 3. **Used** = number of `Conversion` rows for the identity (by `userId` if
-   logged in, else by `guestId`) whose status is not `failed` and whose
+   logged in, else every row carrying this browser's `guestId`) whose status is not `failed` and whose
    `chargedAs` is `free`, within the period. Failed jobs never cost a
    conversion.
    - **Pack credits** (`User.credits`, never expire) are spent only once the

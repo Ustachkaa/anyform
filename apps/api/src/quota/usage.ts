@@ -13,13 +13,22 @@ export function ownerWhere(identity: Pick<Identity, "userId" | "guestId">): Pris
 }
 
 /**
+ * The rows that count against an identity's free allowance. Unlike ownerWhere,
+ * a guest counts every row made from this browser, including ones since
+ * claimed by an account: otherwise logging out handed back 10 fresh conversions.
+ */
+export function quotaOwnerWhere(identity: Pick<Identity, "userId" | "guestId">): Prisma.ConversionWhereInput {
+  return identity.userId ? { userId: identity.userId } : { guestId: identity.guestId };
+}
+
+/**
  * Conversions that count against the free allowance (§4 rule 3). Only ones
  * paid for by the allowance count: not those spent from pack credits or made
  * under a pass or subscription.
  */
 export async function countUsed(identity: Identity, now = new Date(), db: Db = prisma): Promise<number> {
   const where: Prisma.ConversionWhereInput = {
-    ...ownerWhere(identity),
+    ...quotaOwnerWhere(identity),
     status: { not: "failed" },
     chargedAs: "free",
   };
