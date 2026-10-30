@@ -1,15 +1,37 @@
 import { ONE_TIME_PRODUCTS, type OneTimeProductId } from "@anyform/shared";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db.js";
-import { effectivePlan, type SubscriptionSnapshot } from "./provider.js";
+import { ACTIVE_STATUSES, effectivePlan, type SubscriptionSnapshot } from "./provider.js";
 
 /**
  * Provider-neutral effects of billing events. Providers translate their
  * webhooks into these calls; nothing here knows about Stripe or Paddle.
  */
 
-/** Upsert the Subscription row and denormalise User.plan (ARCHITECTURE §10). */
-export async function applySnapshot(snap: SubscriptionSnapshot): Promise<void> {
+interface StoredSubscription {
+  providerSubscriptionId: string;
+  status: string;
+  providerUpdatedAt: Date | null;
+}
+
+/**
+ * Webhooks arrive late, out of order and for more than one subscription. Drop
+ * an event older than the stored state, and never let a non-active event for
+ * some other subscription (e.g. cancelling the old plan after upgrading)
+ * overwrite an active one.
+ */
+export function shouldApplySnapshot(existing: StoredSubscription | null, snap: SubscriptionSnapshot, now = new Date()): boolean {
+  if (!existing) return true;
+  const at = snap.occurredAt ?? now;
+  if (existing.providerUpdatedAt && at < existing.providerUpdatedAt) return false;
+  if (existing.providerSubscriptionId !== snap.providerSubscriptionId) {
+    return !(ACTIVE_STATUSES.has(existing.status) && !ACTIVE_STATUSES.has(snap.status));
+  }
+  return true;
+}
+
+/** Upsert the Subscription row and denormalise User.plan (ARCHITECTURE §10). Returns false for a dropped event. */
+export async function applySnapshot(snap: SubscriptionSnapshot): Promise<boolean> {
   const plan = effectivePlan(snap);
   const fields = {
     providerSubscriptionId: snap.providerSubscriptionId,
@@ -19,11 +41,20 @@ export async function applySnapshot(snap: SubscriptionSnapshot): Promise<void> {
     status: snap.status,
     currentPeriodEnd: snap.currentPeriodEnd,
     cancelAtPeriodEnd: snap.cancelAtPeriodEnd,
+    providerUpdatedAt: snap.occurredAt ?? new Date(),
   };
-  await prisma.$transaction([
-    prisma.subscription.upsert({ where: { userId: snap.userId }, create: { userId: snap.userId, ...fields }, update: fields }),
-    prisma.user.update({ where: { id: snap.userId }, data: { plan } }),
-  ]);
+  return prisma.$transaction(async (tx) => {
+    // Lock the row so two deliveries for one user decide against the same state.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`subscription:${snap.userId}`}))`;
+    const existing = await tx.subscription.findUnique({
+      where: { userId: snap.userId },
+      select: { providerSubscriptionId: true, status: true, providerUpdatedAt: true },
+    });
+    if (!shouldApplySnapshot(existing, snap)) return false;
+    await tx.subscription.upsert({ where: { userId: snap.userId }, create: { userId: snap.userId, ...fields }, update: fields });
+    await tx.user.update({ where: { id: snap.userId }, data: { plan } });
+    return true;
+  });
 }
 
 export interface PurchaseGrant {

@@ -33,6 +33,8 @@ export interface SubscriptionSnapshot {
   status: string;
   currentPeriodEnd: Date;
   cancelAtPeriodEnd: boolean;
+  /** When the provider produced this state; defaults to now (a freshly fetched object). */
+  occurredAt?: Date;
 }
 
 /** Statuses that grant paid features (§10). */

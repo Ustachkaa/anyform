@@ -156,7 +156,8 @@ export class PaddleBilling implements BillingProvider {
     const type = event.event_type;
 
     if (type.startsWith("subscription.")) {
-      const handled = await this.applySubscription(event.data as PaddleSubscription);
+      const occurredAt = event.occurred_at ? new Date(event.occurred_at) : undefined;
+      const handled = await this.applySubscription(event.data as PaddleSubscription, occurredAt);
       return { type, handled };
     }
     if (type === "transaction.completed") {
@@ -174,7 +175,7 @@ export class PaddleBilling implements BillingProvider {
   }
 
   /** subscription.created/updated/activated/canceled/past_due/paused/resumed/trialing → Subscription row + User.plan. */
-  private async applySubscription(sub: PaddleSubscription): Promise<boolean> {
+  private async applySubscription(sub: PaddleSubscription, occurredAt?: Date): Promise<boolean> {
     const priceId = sub.items?.[0]?.price?.id;
     const entry = this.prices.lookup(priceId);
     if (!priceId || entry?.kind !== "subscription") return false;
@@ -191,6 +192,7 @@ export class PaddleBilling implements BillingProvider {
       status: sub.status,
       currentPeriodEnd: ends ? new Date(ends) : new Date(),
       cancelAtPeriodEnd: sub.scheduled_change?.action === "cancel",
+      occurredAt,
     };
     await applySnapshot(snap);
     return true;

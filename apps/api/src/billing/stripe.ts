@@ -109,7 +109,7 @@ export class StripeBilling implements BillingProvider {
       case "customer.subscription.created":
       case "customer.subscription.updated":
       case "customer.subscription.deleted": {
-        await this.applySubscription(event.data.object);
+        await this.applySubscription(event.data.object, undefined, new Date(event.created * 1000));
         return { type: event.type, handled: true };
       }
       default:
@@ -149,11 +149,11 @@ export class StripeBilling implements BillingProvider {
   }
 
   /** Upsert the Subscription row and denormalise User.plan (§10). */
-  async applySubscription(sub: Stripe.Subscription, userIdHint?: string): Promise<void> {
+  async applySubscription(sub: Stripe.Subscription, userIdHint?: string, occurredAt?: Date): Promise<void> {
     const userId = await this.resolveUserId(sub, userIdHint);
     if (!userId) return;
     const snap = this.snapshot(sub, userId);
     if (!snap) return;
-    await applySnapshot(snap);
+    await applySnapshot({ ...snap, occurredAt });
   }
 }

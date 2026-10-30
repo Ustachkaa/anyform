@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { checkoutSchema, type CheckoutResponse, type PlanId } from "@anyform/shared";
-import type { CheckoutItem } from "../billing/provider.js";
+import { ACTIVE_STATUSES, type CheckoutItem } from "../billing/provider.js";
 import { requireUser } from "../auth/identity.js";
 import { getBilling, requireBilling } from "../billing/index.js";
 import { prisma } from "../db.js";
@@ -10,8 +10,12 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
   app.post("/billing/checkout", { preHandler: [requireUser], config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request) => {
     const billing = requireBilling();
     const body = checkoutSchema.parse(request.body ?? {});
-    const user = await prisma.user.findUnique({ where: { id: request.identity!.userId! } });
+    const user = await prisma.user.findUnique({ where: { id: request.identity!.userId! }, include: { subscription: true } });
     if (!user) throw errors.unauthorized();
+    // A second subscription would bill twice, and its events would fight over the one Subscription row.
+    if (!("product" in body) && user.subscription && ACTIVE_STATUSES.has(user.subscription.status)) {
+      throw errors.conflict("You already have a subscription. Change plans in Manage billing.", { reason: "already_subscribed" });
+    }
     const item: CheckoutItem =
       "product" in body
         ? { kind: "one_time", product: body.product }

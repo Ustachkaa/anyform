@@ -82,6 +82,8 @@ model Subscription {
   status               String
   currentPeriodEnd     DateTime
   cancelAtPeriodEnd    Boolean  @default(false)
+  /// Provider time of the last applied event; older events are dropped.
+  providerUpdatedAt    DateTime?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 }
