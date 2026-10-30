@@ -18,8 +18,12 @@ anyform.app, www.anyform.app {
 	}
 
 	# Everything else, including /api/* (rewritten by Next.js), goes to the web app.
+	# Overwrite, never append, X-Forwarded-For: Next.js forwards it to the API
+	# untouched, and the API keys guest limits on the client IP.
 	handle {
-		reverse_proxy web:3000
+		reverse_proxy web:3000 {
+			header_up X-Forwarded-For {remote_host}
+		}
 	}
 
 	# Uploads up to 5 GB on the Business plan.

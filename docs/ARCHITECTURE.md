@@ -277,6 +277,9 @@ re-delivered webhook grants nothing).
     so a file that tricks an engine into fetching URLs reaches nothing.
 - Client IP: X-Forwarded-For is believed only from `TRUST_PROXY` (default
   loopback + private networks), so rate limits can't be dodged with a fake header.
+  This holds only if the public edge overwrites the header: Next.js forwards the
+  client's X-Forwarded-For untouched, so Caddy sets it to the peer address and
+  the base compose file binds web/api to 127.0.0.1.
 - CSRF: SameSite=Lax cookies, plus the API refuses POST/PATCH/DELETE whose
   `Origin` is not the site's (webhooks exempt; they are signed).
 - Login: 10 wrong passwords per email per 15 min locks that email (in-memory,

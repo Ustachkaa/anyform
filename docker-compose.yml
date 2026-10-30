@@ -1,5 +1,10 @@
 # Anyform — local & single-host production stack.
 #
+# Every port is bound to 127.0.0.1. To serve the public, add
+# docker-compose.prod.yml (Caddy in front). Never publish web:3000 directly:
+# Next.js passes the client's X-Forwarded-For through, so the API would
+# believe whatever IP the visitor claims (guest limits are per IP).
+#
 #   docker compose up -d db          # just the database, run apps with npm
 #   docker compose up --build        # everything, with conversion engines baked in
 #
@@ -14,7 +19,7 @@ services:
       POSTGRES_PASSWORD: anyform
       POSTGRES_DB: anyform
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -32,8 +37,8 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio:/data
 
@@ -49,7 +54,7 @@ services:
       STORAGE_LOCAL_DIR: /data
       API_PORT: "4000"
     ports:
-      - "4000:4000"
+      - "127.0.0.1:4000:4000"
     volumes:
       - filedata:/data
     depends_on:
@@ -91,7 +96,7 @@ services:
     environment:
       API_INTERNAL_URL: http://api:4000
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - api
 
