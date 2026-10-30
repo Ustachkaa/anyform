@@ -53,7 +53,7 @@ const schema = z.object({
   S3_BUCKET: z.string().default("anyform"),
   S3_ACCESS_KEY: optStr,
   S3_SECRET_KEY: optStr,
-  S3_FORCE_PATH_STYLE: bool.default("true"),
+  S3_FORCE_PATH_STYLE: bool.default(true),
 
   FREE_CONVERSIONS: z.coerce.number().int().min(0).default(10),
   FREE_QUOTA_PERIOD: z.enum(["lifetime", "monthly"]).default("lifetime"),
@@ -120,7 +120,7 @@ if (isProd) {
   const weak = [
     ["JWT_SECRET", config.JWT_SECRET],
     ["COOKIE_SECRET", config.COOKIE_SECRET],
-  ].filter(([, v]) => !v || v.length < 32 || v.startsWith("dev-only"));
+  ].filter(([, v]) => !v || v.length < 32 || v.startsWith("dev-only") || v.includes("change-me"));
   if (weak.length) {
     // eslint-disable-next-line no-console
     console.error(`Refusing to start in production with weak secrets: ${weak.map(([k]) => k).join(", ")}`);
