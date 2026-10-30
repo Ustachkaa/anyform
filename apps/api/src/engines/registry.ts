@@ -56,6 +56,7 @@ export function chain(first: Engine, midExt: string, second: Engine): Engine {
     },
     async convert(ctx: EngineContext): Promise<void> {
       const midPath = path.join(ctx.tmpDir, `intermediate.${midExt}`);
+      const started = Date.now();
       await first.convert({
         ...ctx,
         outputPath: midPath,
@@ -66,6 +67,8 @@ export function chain(first: Engine, midExt: string, second: Engine): Engine {
         ...ctx,
         inputPath: midPath,
         fromExt: midExt,
+        // The chain shares one budget; the second engine gets what the first left.
+        timeoutMs: Math.max(1000, ctx.timeoutMs - (Date.now() - started)),
         onProgress: (p) => ctx.onProgress(50 + Math.round(p / 2)),
       });
     },

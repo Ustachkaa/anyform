@@ -31,7 +31,12 @@ function extractOptions(raw: unknown): ConversionOptions {
   return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as ConversionOptions) : {};
 }
 
-export async function runConversion(conversionId: string, log: Logger): Promise<ConvertResult> {
+export interface RunOptions {
+  /** pg-boss will not retry this attempt, so an infrastructure failure is final too. */
+  finalAttempt?: boolean;
+}
+
+export async function runConversion(conversionId: string, log: Logger, opts: RunOptions = {}): Promise<ConvertResult> {
   const row = await prisma.conversion.findUnique({ where: { id: conversionId } });
   if (!row) {
     log.warn({ conversionId }, "conversion row missing; dropping job");
@@ -45,10 +50,19 @@ export async function runConversion(conversionId: string, log: Logger): Promise<
 
   const storage = getStorage();
   const jobLog = log.child({ conversionId, from: row.sourceExt, to: row.targetExt });
-  await prisma.conversion.update({
-    where: { id: row.id },
+  // Claim the row. "failed" is claimable because an infrastructure failure marks
+  // it failed and rethrows for pg-boss to retry; "processing" is not, so a retry
+  // fired while the first attempt is still running (pg-boss expiry) is a no-op.
+  const claimed = await prisma.conversion.updateMany({
+    where: { id: row.id, status: { in: ["queued", "failed"] } },
     data: { status: "processing", startedAt: new Date(), progress: 0, error: null },
   });
+  if (claimed.count !== 1) {
+    jobLog.warn({ status: row.status }, "conversion already claimed; skipping");
+    return { ok: false, error: "already claimed" };
+  }
+  // One budget for the whole job: download, every engine in a chain, upload.
+  const deadline = Date.now() + config.JOB_TIMEOUT_MS;
 
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), "anyform-job-"));
   const inputPath = path.join(tmpDir, `input.${row.sourceExt}`);
@@ -90,7 +104,7 @@ export async function runConversion(conversionId: string, log: Logger): Promise<
       toExt: row.targetExt,
       options: extractOptions(row.options),
       tmpDir,
-      timeoutMs: config.JOB_TIMEOUT_MS,
+      timeoutMs: Math.max(1000, deadline - Date.now()),
       onProgress,
       log: (msg) => jobLog.debug(msg),
     });
@@ -148,7 +162,7 @@ export async function runConversion(conversionId: string, log: Logger): Promise<
         persistFailure("Conversion failed.").catch((e2) => jobLog.error({ err: e2 }, "could not persist failure")),
       );
     }
-    if (err instanceof InfraError) {
+    if (err instanceof InfraError && !opts.finalAttempt) {
       jobLog.error({ err }, "infrastructure failure; will retry");
       throw err;
     }

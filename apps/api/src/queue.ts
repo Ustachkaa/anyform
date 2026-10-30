@@ -19,6 +19,9 @@ export interface CleanupJobData {
   reason: "schedule" | "manual";
 }
 
+/** Engine budget plus room for downloading and storing files. A retry after expiry cannot double-run: the worker claims the row first. */
+const JOB_EXPIRE_SECONDS = Math.ceil(config.JOB_TIMEOUT_MS / 1000) + 300;
+
 let boss: PgBoss | undefined;
 let starting: Promise<PgBoss> | undefined;
 
@@ -50,7 +53,7 @@ export function startBoss(): Promise<PgBoss> {
     await ensureQueue(b, QUEUE_CONVERT, {
       retryLimit: 1,
       retryDelay: 15,
-      expireInSeconds: Math.ceil(config.JOB_TIMEOUT_MS / 1000) + 60,
+      expireInSeconds: JOB_EXPIRE_SECONDS,
     });
     await ensureQueue(b, QUEUE_CLEANUP, { retryLimit: 0, expireInSeconds: 600 });
     boss = b;
@@ -80,7 +83,7 @@ export async function enqueueConvert(data: ConvertJobData, opts: EnqueueConvertO
     priority: opts.priority,
     retryLimit: 1,
     retryDelay: 15,
-    expireInSeconds: Math.ceil(config.JOB_TIMEOUT_MS / 1000) + 60,
+    expireInSeconds: JOB_EXPIRE_SECONDS,
     singletonKey: data.conversionId,
   });
 }

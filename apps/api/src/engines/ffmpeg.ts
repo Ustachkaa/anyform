@@ -243,11 +243,12 @@ export const ffmpegEngine: Engine = {
     if (!found) throw new EngineError("ffmpeg", "ffmpeg is not installed");
 
     // 1. duration probe (exits non-zero on purpose: no output specified)
+    const started = Date.now();
     // Same input restrictions as the real run, or a disguised playlist gets opened here.
     const probe = await run(
       found.path,
       ["-hide_banner", "-nostdin", "-protocol_whitelist", "file", "-format_whitelist", INPUT_DEMUXERS, "-i", ctx.inputPath],
-      { timeoutMs: 60_000 },
+      { timeoutMs: Math.min(60_000, ctx.timeoutMs) },
     );
     let duration = parseDuration(probe.stderr);
     if (duration !== undefined) {
@@ -260,7 +261,7 @@ export const ffmpegEngine: Engine = {
     const args = buildFfmpegArgs(ctx.inputPath, ctx.outputPath, ctx.toExt, ctx.options);
     ctx.log(`ffmpeg ${args.join(" ")}`);
     const res = await run(found.path, args, {
-      timeoutMs: ctx.timeoutMs,
+      timeoutMs: Math.max(1000, ctx.timeoutMs - (Date.now() - started)),
       onStdout: (chunk) => {
         if (!duration) return;
         const secs = parseProgressSeconds(chunk);

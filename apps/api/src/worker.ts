@@ -27,10 +27,10 @@ async function main(): Promise<void> {
   const boss = await startBoss();
 
   for (let i = 0; i < config.WORKER_CONCURRENCY; i++) {
-    await boss.work<ConvertJobData>(QUEUE_CONVERT, { batchSize: 1, pollingIntervalSeconds: 1 }, async (jobs) => {
+    await boss.work<ConvertJobData>(QUEUE_CONVERT, { batchSize: 1, pollingIntervalSeconds: 1, includeMetadata: true }, async (jobs) => {
       for (const job of jobs) {
         log.debug({ jobId: job.id, conversionId: job.data.conversionId }, "job start");
-        await runConversion(job.data.conversionId, log);
+        await runConversion(job.data.conversionId, log, { finalAttempt: job.retryCount >= job.retryLimit });
       }
     });
   }
